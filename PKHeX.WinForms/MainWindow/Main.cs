@@ -437,6 +437,14 @@ public partial class Main : Form
         C_SAV.UpdateBoxViewers();
     }
 
+    private void MainMenuBulkQoL(object sender, EventArgs e)
+    {
+        using var form = new SAV_BulkQoL(C_SAV.SAV);
+        form.ShowDialog();
+        C_SAV.SetPKMBoxes(); // refresh
+        C_SAV.UpdateBoxViewers();
+    }
+
     private void MainMenuFolder(object sender, EventArgs e)
     {
         if (this.OpenWindowExists<SAV_FolderList>())

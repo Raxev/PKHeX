@@ -8,6 +8,7 @@
     <Project Path="Tests/PKHeX.Core.Tests/PKHeX.Core.Tests.csproj" />
   </Folder>
   <Project Path="PKHeX.Core/PKHeX.Core.csproj" />
+  <Project Path="PKHeX.Core.AutoMod/PKHeX.Core.AutoMod.csproj" />
   <Project Path="PKHeX.Drawing.Misc/PKHeX.Drawing.Misc.csproj" />
   <Project Path="PKHeX.Drawing.PokeSprite/PKHeX.Drawing.PokeSprite.csproj" />
   <Project Path="PKHeX.Drawing/PKHeX.Drawing.csproj" />

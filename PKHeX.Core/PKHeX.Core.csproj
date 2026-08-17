@@ -23,6 +23,11 @@
     <None Include="..\icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- PKHeX.Core.AutoMod (vendored AutoLegalityMod) needs a few internal legality/batch-editing helpers. -->
+    <InternalsVisibleTo Include="PKHeX.Core.AutoMod" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>

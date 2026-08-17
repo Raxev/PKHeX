@@ -52,6 +52,7 @@ namespace PKHeX.WinForms
             Menu_MGDatabase = new System.Windows.Forms.ToolStripMenuItem();
             Menu_EncDatabase = new System.Windows.Forms.ToolStripMenuItem();
             Menu_BatchEditor = new System.Windows.Forms.ToolStripMenuItem();
+            Menu_BulkQoL = new System.Windows.Forms.ToolStripMenuItem();
             Menu_Folder = new System.Windows.Forms.ToolStripMenuItem();
             Menu_Options = new System.Windows.Forms.ToolStripMenuItem();
             Menu_Language = new System.Windows.Forms.ToolStripMenuItem();
@@ -202,7 +203,7 @@ namespace PKHeX.WinForms
             // 
             // Menu_Data
             // 
-            Menu_Data.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { Menu_LoadBoxes, Menu_DumpBoxes, Menu_DumpBox, toolStripSeparator4, Menu_Report, toolStripSeparator6, Menu_Database, Menu_MGDatabase, Menu_EncDatabase, toolStripSeparator5, Menu_BatchEditor });
+            Menu_Data.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] { Menu_LoadBoxes, Menu_DumpBoxes, Menu_DumpBox, toolStripSeparator4, Menu_Report, toolStripSeparator6, Menu_Database, Menu_MGDatabase, Menu_EncDatabase, toolStripSeparator5, Menu_BatchEditor, Menu_BulkQoL });
             Menu_Data.Image = Properties.Resources.data;
             Menu_Data.Name = "Menu_Data";
             Menu_Data.Size = new System.Drawing.Size(180, 22);
@@ -281,7 +282,14 @@ namespace PKHeX.WinForms
             Menu_BatchEditor.Size = new System.Drawing.Size(197, 22);
             Menu_BatchEditor.Text = "Batch Editor";
             Menu_BatchEditor.Click += MainMenuBatchEditor;
-            // 
+            //
+            // Menu_BulkQoL
+            //
+            Menu_BulkQoL.Name = "Menu_BulkQoL";
+            Menu_BulkQoL.Size = new System.Drawing.Size(197, 22);
+            Menu_BulkQoL.Text = "Bulk QoL Editor";
+            Menu_BulkQoL.Click += MainMenuBulkQoL;
+            //
             // Menu_Folder
             // 
             Menu_Folder.Image = Properties.Resources.folder;
@@ -580,6 +588,7 @@ namespace PKHeX.WinForms
         private System.Windows.Forms.ToolStripMenuItem Menu_DumpBoxes;
         private System.Windows.Forms.ToolStripMenuItem Menu_DumpBox;
         private System.Windows.Forms.ToolStripMenuItem Menu_BatchEditor;
+        private System.Windows.Forms.ToolStripMenuItem Menu_BulkQoL;
         private System.Windows.Forms.ToolStripMenuItem Menu_MGDatabase;
         private System.Windows.Forms.ToolStripMenuItem Menu_Undo;
         private System.Windows.Forms.ToolStripMenuItem Menu_Redo;

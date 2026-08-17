@@ -1,7 +1,9 @@
 using System;
 using System.Drawing;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using PKHeX.Core;
+using PKHeX.Core.AutoMod;
 using PKHeX.Drawing;
 using PKHeX.Drawing.Misc;
 using PKHeX.Drawing.PokeSprite;
@@ -280,6 +282,75 @@ public partial class StatEditor : UserControl
         }
         LoadEVs(values);
         UpdateEVs(sender, EventArgs.Empty);
+    }
+
+    // HP, ATK, DEF, SPE, SPA, SPD order (matches PKM.SetEVs/LoadEVs).
+    private static readonly int[] PhysicalSpread = [0, 252, 0, 252, 0, 0]; // 252 Atk / 252 Spe
+    private static readonly int[] SpecialSpread = [0, 0, 0, 252, 252, 0]; // 252 SpA / 252 Spe
+
+    private void ClickNaturePreset(object sender, EventArgs e)
+    {
+        using var menu = new ContextMenuStrip();
+        AddPreset("Jolly (252 Atk / 252 Spe)", Nature.Jolly, PhysicalSpread);
+        AddPreset("Timid (252 SpA / 252 Spe)", Nature.Timid, SpecialSpread);
+        AddPreset("Adamant (252 Atk / 252 Spe)", Nature.Adamant, PhysicalSpread);
+        AddPreset("Modest (252 SpA / 252 Spe)", Nature.Modest, SpecialSpread);
+        menu.Show(BTN_NaturePreset, new Point(0, BTN_NaturePreset.Height));
+        return;
+
+        void AddPreset(string text, Nature nature, int[] evs) =>
+            menu.Items.Add(text, null, (_, _) => ApplyNaturePreset(nature, evs));
+    }
+
+    private void ApplyNaturePreset(Nature nature, ReadOnlySpan<int> evs)
+    {
+        // Gen 3/4 Nature is PID-derived; forcing it re-rolls the PID, which always clears shininess
+        // (and can flip the ability) as a side effect of PKM.SetPIDNature. Skip rather than surprise the user.
+        if (Entity.Format is 3 or 4)
+        {
+            WinFormsUtil.Alert("Nature presets aren't applied to Generation 3/4 entities: their Nature comes from the PID, so forcing it would re-roll the PID and silently clear shininess.");
+            return;
+        }
+
+        MainEditor.ChangeNature(nature);
+        LoadEVs(evs);
+        UpdateEVs(this, EventArgs.Empty);
+    }
+
+    private async void ClickOptimizeIVs(object sender, EventArgs e)
+    {
+        // Pull in any pending edits sitting in the UI fields (not yet committed to Entity) before optimizing,
+        // same as ClickMetLocation/ClickMoves do -- otherwise those edits could get silently discarded later.
+        var pk = MainEditor.CurrentPKM;
+        var sav = MainEditor.RequestSaveFile;
+
+        // Can be slow: correlated-PID encounters retry regenerations looking for the best legal IV spread.
+        // Run off the UI thread (bounded internally to a ~20s wall-clock budget) so the window stays
+        // responsive instead of appearing to hang.
+        BTN_OptimizeIVs.Enabled = false;
+        Cursor.Current = Cursors.WaitCursor;
+        UseWaitCursor = true;
+        bool improved;
+        try
+        {
+            improved = await Task.Run(() => IVOptimizer.TryOptimize(pk, sav)).ConfigureAwait(true);
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            BTN_OptimizeIVs.Enabled = true;
+        }
+
+        if (!improved)
+        {
+            WinFormsUtil.Alert("No better legal IV spread was found (already optimal, or none could be found).");
+            return;
+        }
+
+        // A correlated-PID regeneration can change far more than just IVs (PID, ability, met data, ribbons, ...).
+        // Reload every field from the result -- not just the IV boxes -- so nothing stale (e.g. the old PID)
+        // is still sitting in another control and gets committed over the new, actually-legal data later.
+        MainEditor.PopulateFields(pk);
     }
 
     private void UpdateHackedStats(object sender, EventArgs e)

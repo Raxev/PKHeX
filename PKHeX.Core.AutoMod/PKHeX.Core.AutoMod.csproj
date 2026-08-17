@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Automated Pokémon legalization logic, vendored from AutoLegalityMod (Daiivr/AutoLegalityMod, MIT License).</Description>
+    <RootNamespace>PKHeX.Core.AutoMod</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PKHeX.Core\PKHeX.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Excluded: standalone AI/LLM-assistant text-report helpers (used to build human-readable
+      legality explanations, not consumed by any legalization logic). Depended on a PokemonEvolutionHelper
+      class that no longer exists upstream. Not on the critical path for programmatic auto-legalization;
+      left out of scope rather than reverse-engineered. Re-include and fix if AI-assisted legality reports
+      are wanted later.
+    -->
+    <Compile Remove="AutoMod\Legalization\Analysis\**" />
+  </ItemGroup>
+
+</Project>

@@ -107,6 +107,8 @@ namespace PKHeX.WinForms.Controls
             PAN_BTN = new System.Windows.Forms.Panel();
             FLP_PKMEditors = new System.Windows.Forms.FlowLayoutPanel();
             BTN_RandomIVs = new System.Windows.Forms.Button();
+            BTN_NaturePreset = new System.Windows.Forms.Button();
+            BTN_OptimizeIVs = new System.Windows.Forms.Button();
             BTN_RandomEVs = new System.Windows.Forms.Button();
             BTN_RandomAVs = new System.Windows.Forms.Button();
             FLP_DynamaxLevel = new System.Windows.Forms.FlowLayoutPanel();
@@ -1231,14 +1233,16 @@ namespace PKHeX.WinForms.Controls
             FLP_PKMEditors.AutoSize = true;
             FLP_PKMEditors.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
             FLP_PKMEditors.Controls.Add(BTN_RandomIVs);
+            FLP_PKMEditors.Controls.Add(BTN_OptimizeIVs);
             FLP_PKMEditors.Controls.Add(BTN_RandomEVs);
+            FLP_PKMEditors.Controls.Add(BTN_NaturePreset);
             FLP_PKMEditors.Controls.Add(BTN_RandomAVs);
             FLP_PKMEditors.Location = new System.Drawing.Point(32, 0);
             FLP_PKMEditors.Margin = new System.Windows.Forms.Padding(0);
             FLP_PKMEditors.Name = "FLP_PKMEditors";
-            FLP_PKMEditors.Size = new System.Drawing.Size(332, 27);
+            FLP_PKMEditors.Size = new System.Drawing.Size(332, 58);
             FLP_PKMEditors.TabIndex = 123;
-            FLP_PKMEditors.WrapContents = false;
+            FLP_PKMEditors.WrapContents = true;
             // 
             // BTN_RandomIVs
             // 
@@ -1278,7 +1282,33 @@ namespace PKHeX.WinForms.Controls
             BTN_RandomAVs.Text = "Randomize AVs";
             BTN_RandomAVs.UseVisualStyleBackColor = true;
             BTN_RandomAVs.Click += UpdateRandomAVs;
-            // 
+            //
+            // BTN_NaturePreset
+            //
+            BTN_NaturePreset.AutoSize = true;
+            BTN_NaturePreset.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            BTN_NaturePreset.Location = new System.Drawing.Point(332, 0);
+            BTN_NaturePreset.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+            BTN_NaturePreset.Name = "BTN_NaturePreset";
+            BTN_NaturePreset.Size = new System.Drawing.Size(108, 27);
+            BTN_NaturePreset.TabIndex = 4;
+            BTN_NaturePreset.Text = "Nature+EV Preset";
+            BTN_NaturePreset.UseVisualStyleBackColor = true;
+            BTN_NaturePreset.Click += ClickNaturePreset;
+            //
+            // BTN_OptimizeIVs
+            //
+            BTN_OptimizeIVs.AutoSize = true;
+            BTN_OptimizeIVs.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            BTN_OptimizeIVs.Location = new System.Drawing.Point(440, 0);
+            BTN_OptimizeIVs.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+            BTN_OptimizeIVs.Name = "BTN_OptimizeIVs";
+            BTN_OptimizeIVs.Size = new System.Drawing.Size(108, 27);
+            BTN_OptimizeIVs.TabIndex = 5;
+            BTN_OptimizeIVs.Text = "Optimize IVs";
+            BTN_OptimizeIVs.UseVisualStyleBackColor = true;
+            BTN_OptimizeIVs.Click += ClickOptimizeIVs;
+            //
             // FLP_DynamaxLevel
             // 
             FLP_DynamaxLevel.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right;
@@ -1453,6 +1483,8 @@ namespace PKHeX.WinForms.Controls
         private System.Windows.Forms.MaskedTextBox TB_AVSPE;
         private System.Windows.Forms.TextBox TB_AVTotal;
         private System.Windows.Forms.Button BTN_RandomAVs;
+        private System.Windows.Forms.Button BTN_NaturePreset;
+        private System.Windows.Forms.Button BTN_OptimizeIVs;
         private System.Windows.Forms.FlowLayoutPanel FLP_DynamaxLevel;
         private System.Windows.Forms.Label L_DynamaxLevel;
         public System.Windows.Forms.ComboBox CB_DynamaxLevel;
