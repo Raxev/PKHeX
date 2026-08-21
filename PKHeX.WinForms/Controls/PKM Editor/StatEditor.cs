@@ -353,6 +353,26 @@ public partial class StatEditor : UserControl
         MainEditor.PopulateFields(pk);
     }
 
+    private void ClickFixMemory(object sender, EventArgs e)
+    {
+        // Pull in any pending edits sitting in the UI fields first, same reasoning as ClickOptimizeIVs.
+        var pk = MainEditor.CurrentPKM;
+        var sav = MainEditor.RequestSaveFile;
+
+        var result = BulkQoLEditor.FixTrashAndMemoryForAll([pk], sav);
+        if (result.Modified == 0)
+        {
+            WinFormsUtil.Alert(result.SkippedInvalid > 0
+                ? "Nothing to fix (no species set)."
+                : "Nothing to fix, or no safe fix was found -- trash bytes and Handling Trainer memory either already look correct, or need Auto-enforce legality / Optimize IVs instead (e.g. Original Trainer memory has no generic safe fix).");
+            return;
+        }
+
+        // Trash-byte and memory fixes can touch Nickname/OT/HT trash and HT memory fields -- reload everything
+        // rather than guess which controls need refreshing.
+        MainEditor.PopulateFields(pk);
+    }
+
     private void UpdateHackedStats(object sender, EventArgs e)
     {
         foreach (var s in MT_Stats)

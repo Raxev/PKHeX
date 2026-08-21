@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using PKHeX.Core;
@@ -16,6 +17,7 @@ namespace PKHeX.WinForms;
 public partial class SAV_BulkQoL : Form
 {
     private readonly SaveFile SAV;
+    private CancellationTokenSource? _cts;
 
     public SAV_BulkQoL(SaveFile sav)
     {
@@ -43,6 +45,9 @@ public partial class SAV_BulkQoL : Form
 
         CB_NaturePreset.DataSource = Enum.GetValues<BulkQoLEditor.NatureEVPreset>();
         CB_NaturePreset.SelectedIndex = 0;
+
+        CB_FilterSpecies.InitializeBinding();
+        CB_FilterSpecies.DataSource = new BindingSource(filtered.Species, string.Empty);
     }
 
     /// <summary>
@@ -50,25 +55,39 @@ public partial class SAV_BulkQoL : Form
     /// the actual run happens on a background thread, and WinForms controls aren't safe to touch from there.
     /// </summary>
     private readonly record struct Plan(
+        bool FilterIllegalOnly,
+        bool FilterShinyOnly,
+        bool FilterSpecies, ushort FilterSpeciesValue,
+        bool FilterGiftOrigin,
         bool Ball, byte BallValue,
         bool MetLocation, ushort MetLocationValue,
         bool Shiny, bool ShinyValue,
         bool MaxIVs,
+        bool MaxSize,
         bool NaturePreset, BulkQoLEditor.NatureEVPreset NaturePresetValue,
         bool OptimizeIVs,
         bool MaxPP,
         bool FixMoves,
+        bool FixTrashMemory,
+        bool RegenTrackerEC,
         bool AutoLegalize);
 
     private Plan CapturePlan() => new(
+        CHK_FilterIllegalOnly.Checked,
+        CHK_FilterShinyOnly.Checked,
+        CHK_FilterSpecies.Checked, (ushort)WinFormsUtil.GetIndex(CB_FilterSpecies),
+        CHK_FilterGiftOrigin.Checked,
         CHK_Ball.Checked, (byte)WinFormsUtil.GetIndex(CB_Ball),
         CHK_MetLocation.Checked, (ushort)WinFormsUtil.GetIndex(CB_MetLocation),
         CHK_Shiny.Checked, RB_ShinyOn.Checked,
         CHK_MaxIVs.Checked,
+        CHK_MaxSize.Checked,
         CHK_NaturePreset.Checked, (BulkQoLEditor.NatureEVPreset)CB_NaturePreset.SelectedItem!,
         CHK_OptimizeIVs.Checked,
         CHK_MaxPP.Checked,
         CHK_FixMoves.Checked,
+        CHK_FixTrashMemory.Checked,
+        CHK_RegenTrackerEC.Checked,
         CHK_AutoLegalize.Checked);
 
     private async void B_Run_Click(object sender, EventArgs e)
@@ -91,31 +110,179 @@ public partial class SAV_BulkQoL : Form
         // Auto-enforce legality and Optimize IVs can each take a real amount of time across a whole box
         // (correlated-PID entities retry regeneration many times). Run off the UI thread so the window stays
         // responsive instead of appearing to hang, matching how the rest of the app runs long batch edits.
-        B_Run.Enabled = false;
-        B_Close.Enabled = false;
-        UseWaitCursor = true;
-        Cursor.Current = Cursors.WaitCursor;
+        ShowBusy();
+        var ct = _cts!.Token;
         List<string> lines;
         try
         {
-            lines = await Task.Run(() => RunEdits(eligible, SAV, plan)).ConfigureAwait(true);
+            lines = await Task.Run(() => RunEdits(eligible, SAV, plan, ct)).ConfigureAwait(true);
         }
         finally
         {
-            UseWaitCursor = false;
-            B_Run.Enabled = true;
-            B_Close.Enabled = true;
+            HideBusy();
         }
 
+        // Anything a cancelled run already applied and kept legal stays applied -- guarded edits commit as they
+        // go, so there's nothing "in progress" to roll back; write back whatever eligible slots hold now.
         foreach (var slot in eligible)
             slot.Source.WriteTo(SAV, slot.Entity, EntityImportSettings.None);
 
         WinFormsUtil.Alert(lines.ToArray());
     }
 
+    /// <summary>
+    /// Scans the whole save (not just the current scope/filters -- a clone can be duplicated across boxes and
+    /// party) for signs of duplicated/cloned Pokémon: a shared HOME Tracker GUID, or a shared raw PID/Encryption
+    /// Constant. Also reports how many Pokémon in the save are Mystery Gift-origin as an FYI -- those carry a
+    /// separate, locally-unfixable HOME rejection risk (see <see cref="HomeRiskAnalyzer"/>). Offers to
+    /// auto-regenerate the Tracker/EC of the flagged duplicate copies afterward. See <see cref="CloneDetector"/>.
+    /// </summary>
+    private async void B_CheckClones_Click(object sender, EventArgs e)
+    {
+        ShowBusy();
+        var ct = _cts!.Token;
+        IReadOnlyList<CloneDetector.Finding> findings;
+        int giftOriginCount;
+        try
+        {
+            var work = Task.Run(() =>
+            {
+                var f = CloneDetector.FindLikelyClones(SAV);
+                var g = HomeRiskAnalyzer.CountGiftOrigin(GetAllSlots().Select(s => s.Entity));
+                return (Findings: f, GiftCount: g);
+            });
+            var cancelTask = Task.Delay(Timeout.Infinite, ct);
+            var completed = await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(60)), cancelTask).ConfigureAwait(true);
+            if (completed == cancelTask)
+            {
+                WinFormsUtil.Alert("Clone scan cancelled.",
+                    "The scan itself keeps running in the background until it finishes or times out -- this just stops waiting for it.");
+                return;
+            }
+            if (completed != work)
+            {
+                // Bail out rather than leave the button disabled/cursor spinning forever with no feedback --
+                // most likely one specific Pokémon's LegalityAnalysis is pathologically slow to construct
+                // (the same class of issue fixed for Auto-enforce Legality/Optimize IVs via search timeouts;
+                // BulkAnalysis's own per-slot LegalityAnalysis construction has no such guard).
+                WinFormsUtil.Alert("Clone scan timed out after 60 seconds without finishing.",
+                    "This usually means one specific Pokémon in the save is pathologically slow to analyze. " +
+                    "Try narrowing the scope (Party only, or a single box at a time) to isolate which one.");
+                return;
+            }
+            (findings, giftOriginCount) = await work.ConfigureAwait(true); // already completed; rethrows if faulted
+        }
+        catch (Exception ex)
+        {
+            // A single corrupted/edge-case entity can make BulkAnalysis's construction itself throw -- surface
+            // that instead of silently doing nothing, which is indistinguishable from a hang to the user.
+            WinFormsUtil.Alert("Clone scan failed with an error:", ex.Message);
+            return;
+        }
+        finally
+        {
+            HideBusy();
+        }
+
+        var giftNotice = giftOriginCount > 0
+            ? $"FYI: {giftOriginCount} Pokémon in this save are Mystery Gift-origin. If HOME rejects one of those specifically (commonly error 999), that's a gift-authenticity signature check PKHeX can't verify or fix locally -- not a clone/tracker problem."
+            : null;
+
+        if (findings.Count == 0)
+        {
+            WinFormsUtil.Alert("No likely clones found -- no two Pokémon in this save share a HOME Tracker, PID, or Encryption Constant.", giftNotice);
+            return;
+        }
+
+        var lines = findings
+            .Select(f => f.Second is { } second
+                ? $"{f.Description}\n  [{f.First.Identify()}]\n  [{second.Identify()}]"
+                : $"{f.Description}\n  [{f.First.Identify()}]")
+            .ToArray();
+        WinFormsUtil.Alert([$"{findings.Count} likely clone(s)/duplicate(s) found:", .. lines, giftNotice]);
+
+        var fixable = findings.Where(f => f.Second is not null).Select(f => f.Second!).ToList();
+        if (fixable.Count == 0)
+            return; // e.g. only a duplicate-gift-egg finding, which has no safe automatic fix
+
+        var distinctFixable = fixable.DistinctBy(s => s.Entity).ToList();
+        var reply = WinFormsUtil.Prompt(MessageBoxButtons.YesNo,
+            $"Regenerate the HOME Tracker/Encryption Constant now for the {distinctFixable.Count} later-listed copy in each pair above?",
+            "The earlier-listed copy in each pair is left untouched. Reverts per-Pokémon if the change would make it illegal.");
+        if (reply != DialogResult.Yes)
+            return;
+
+        var fixResult = BulkQoLEditor.RegenerateTrackerAndECForAll(distinctFixable.Select(s => s.Entity));
+        foreach (var slot in distinctFixable)
+            slot.Source.WriteTo(SAV, slot.Entity, EntityImportSettings.None);
+        WinFormsUtil.Alert($"Regenerate HOME Tracker/EC: {fixResult.Modified} regenerated, {fixResult.SkippedIllegal} skipped (would be illegal), {fixResult.AlreadyLegal} skipped (no Tracker/EC to change).",
+            "Re-run Check for Clones to confirm they no longer collide.");
+    }
+
+    private void ShowBusy()
+    {
+        _cts = new CancellationTokenSource();
+        PB_Progress.Visible = true;
+        B_Cancel.Visible = true;
+        B_Cancel.Enabled = true;
+        B_Run.Enabled = false;
+        B_CheckClones.Enabled = false;
+        B_Close.Enabled = false;
+        UseWaitCursor = true;
+        Cursor.Current = Cursors.WaitCursor;
+    }
+
+    private void HideBusy()
+    {
+        PB_Progress.Visible = false;
+        B_Cancel.Visible = false;
+        B_Run.Enabled = true;
+        B_CheckClones.Enabled = true;
+        B_Close.Enabled = true;
+        UseWaitCursor = false;
+        _cts?.Dispose();
+        _cts = null;
+    }
+
+    private void B_Cancel_Click(object sender, EventArgs e)
+    {
+        _cts?.Cancel();
+        B_Cancel.Enabled = false; // one cancel request is enough; avoid re-entrant Cancel() calls
+    }
+
     private static bool HasAnyEditSelected(Plan plan) =>
-        plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.NaturePreset
-        || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.AutoLegalize;
+        plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.MaxSize || plan.NaturePreset
+        || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.RegenTrackerEC
+        || plan.AutoLegalize;
+
+    /// <summary>
+    /// Narrows <paramref name="eligible"/> down to only the Pokémon matching every checked filter. Runs off
+    /// the UI thread (called from <see cref="RunEdits"/>) since the illegal-only filter needs a full legality
+    /// pass per entity, which isn't free across a whole box.
+    /// </summary>
+    private static List<SlotCache> ApplyFilters(List<SlotCache> eligible, Plan plan)
+    {
+        if (!plan.FilterIllegalOnly && !plan.FilterShinyOnly && !plan.FilterSpecies && !plan.FilterGiftOrigin)
+            return eligible;
+
+        var result = new List<SlotCache>(eligible.Count);
+        foreach (var slot in eligible)
+        {
+            var pk = slot.Entity;
+            if (pk.Species == 0)
+                continue;
+            if (plan.FilterSpecies && pk.Species != plan.FilterSpeciesValue)
+                continue;
+            if (plan.FilterShinyOnly && !pk.IsShiny)
+                continue;
+            if (plan.FilterIllegalOnly && new LegalityAnalysis(pk).Valid)
+                continue;
+            if (plan.FilterGiftOrigin && !HomeRiskAnalyzer.IsGiftOrigin(pk))
+                continue;
+            result.Add(slot);
+        }
+        return result;
+    }
 
     /// <summary>
     /// Runs every checked edit over <paramref name="eligible"/>, in a fixed order chosen so each edit sees the
@@ -123,51 +290,92 @@ public partial class SAV_BulkQoL : Form
     /// last so it isn't immediately undone by an earlier edit). Touches only PKM/SaveFile data -- safe to run
     /// off the UI thread.
     /// </summary>
-    private static List<string> RunEdits(List<SlotCache> eligible, SaveFile sav, Plan plan)
+    private static List<string> RunEdits(List<SlotCache> eligible, SaveFile sav, Plan plan, CancellationToken ct)
     {
         var lines = new List<string>();
 
+        var filtered = ApplyFilters(eligible, plan);
+        if (filtered.Count == 0)
+        {
+            lines.Add("No Pokémon matched the selected filters.");
+            return lines;
+        }
+        eligible = filtered;
+
+        // Cancellation is only checked between whole edit steps below, not mid-step -- each step is a tight
+        // loop over `eligible` with no natural interruption point. Anything a completed step already applied
+        // and kept legal stays applied; only the steps after the cancellation point are skipped.
+        if (Cancelled(ct, lines)) return lines;
         if (plan.Ball)
         {
             var result = BulkQoLEditor.SetBallForAll(eligible.Select(s => s.Entity), plan.BallValue);
             lines.Add(Describe("Ball", result));
         }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.MetLocation)
         {
             var result = BulkQoLEditor.SetMetLocationForAll(eligible.Select(s => s.Entity), plan.MetLocationValue);
             lines.Add(Describe("Met Location", result));
         }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.Shiny)
         {
             var result = BulkQoLEditor.SetShinyForAll(eligible.Select(s => s.Entity), plan.ShinyValue);
             lines.Add(Describe(plan.ShinyValue ? "Shiny" : "Not Shiny", result));
         }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.MaxIVs)
         {
             var result = BulkQoLEditor.SetMaxIVsForAll(eligible.Select(s => s.Entity));
             lines.Add(Describe("All IVs to 31", result));
         }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.MaxSize)
+        {
+            var result = BulkQoLEditor.SetMaxSizeForAll(eligible.Select(s => s.Entity));
+            lines.Add($"Max size: {result.Modified} modified, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (pre-Gen8, no size scalar), {result.SkippedInvalid} skipped (empty)");
+        }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.NaturePreset)
         {
             var result = BulkQoLEditor.SetNatureEVPresetForAll(eligible.Select(s => s.Entity), plan.NaturePresetValue);
             lines.Add($"Nature+EVs ({plan.NaturePresetValue}): {result.Modified} applied, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (Gen 3/4), {result.SkippedInvalid} skipped (empty)");
         }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.OptimizeIVs)
         {
             var result = IVOptimizer.OptimizeAll(eligible.Select(s => s.Entity), sav);
             lines.Add($"Optimize IVs: {result.Improved} improved, {result.AlreadyOptimal} already optimal, {result.Failed} no legal spread found, {result.SkippedInvalid} skipped (empty)");
         }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.MaxPP)
         {
             var result = BulkQoLEditor.SetMaxPPUpsForAll(eligible.Select(s => s.Entity));
             lines.Add(Describe("PP Ups to max", result));
         }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.FixMoves)
         {
             // Run before auto-legalize: fixing moves first gives the legalizer less (or nothing) left to do.
             var result = BulkQoLEditor.SetLegalMovesForAll(eligible.Select(s => s.Entity));
             lines.Add($"Auto-fix illegal movesets: {result.Modified} fixed, {result.SkippedIllegal} could not be fixed, {result.AlreadyLegal} already legal, {result.SkippedInvalid} skipped (empty)");
         }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.FixTrashMemory)
+        {
+            // Also run before auto-legalize: cleaner starting data, less for the legalizer to fix.
+            var result = BulkQoLEditor.FixTrashAndMemoryForAll(eligible.Select(s => s.Entity), sav);
+            lines.Add(Describe("Fix trash bytes / HT memory", result));
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.RegenTrackerEC)
+        {
+            // Also before auto-legalize: a full regeneration already assigns a fresh PID/EC by construction,
+            // so this mainly matters for entities that keep their original (non-regenerated) data.
+            var result = BulkQoLEditor.RegenerateTrackerAndECForAll(eligible.Select(s => s.Entity));
+            lines.Add($"Regenerate HOME Tracker/EC: {result.Modified} regenerated, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (no Tracker/EC to change), {result.SkippedInvalid} skipped (empty)");
+        }
+        if (Cancelled(ct, lines)) return lines;
         if (plan.AutoLegalize)
         {
             // Run this last: it should legalize whatever the prior edits left behind, not get immediately
@@ -177,6 +385,14 @@ public partial class SAV_BulkQoL : Form
         }
 
         return lines;
+    }
+
+    private static bool Cancelled(CancellationToken ct, List<string> lines)
+    {
+        if (!ct.IsCancellationRequested)
+            return false;
+        lines.Add("Cancelled -- remaining edits were skipped. Anything applied above was already kept.");
+        return true;
     }
 
     private static string Describe(string label, BulkQoLEditor.BulkEditResult result) =>
@@ -189,6 +405,18 @@ public partial class SAV_BulkQoL : Form
             SlotInfoLoader.AddPartyData(SAV, data);
         if (RB_Boxes.Checked || RB_Both.Checked)
             SlotInfoLoader.AddBoxData(SAV, data);
+        return data;
+    }
+
+    /// <summary>
+    /// All box + party slots regardless of the Scope radio selection -- used by whole-save checks
+    /// (Check for Clones, gift-origin count) where a clone/duplicate can span boxes and party either way.
+    /// </summary>
+    private List<SlotCache> GetAllSlots()
+    {
+        var data = new List<SlotCache>();
+        SlotInfoLoader.AddPartyData(SAV, data);
+        SlotInfoLoader.AddBoxData(SAV, data);
         return data;
     }
 

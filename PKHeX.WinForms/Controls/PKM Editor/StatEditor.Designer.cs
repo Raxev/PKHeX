@@ -109,6 +109,7 @@ namespace PKHeX.WinForms.Controls
             BTN_RandomIVs = new System.Windows.Forms.Button();
             BTN_NaturePreset = new System.Windows.Forms.Button();
             BTN_OptimizeIVs = new System.Windows.Forms.Button();
+            BTN_FixMemory = new System.Windows.Forms.Button();
             BTN_RandomEVs = new System.Windows.Forms.Button();
             BTN_RandomAVs = new System.Windows.Forms.Button();
             FLP_DynamaxLevel = new System.Windows.Forms.FlowLayoutPanel();
@@ -1234,6 +1235,7 @@ namespace PKHeX.WinForms.Controls
             FLP_PKMEditors.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
             FLP_PKMEditors.Controls.Add(BTN_RandomIVs);
             FLP_PKMEditors.Controls.Add(BTN_OptimizeIVs);
+            FLP_PKMEditors.Controls.Add(BTN_FixMemory);
             FLP_PKMEditors.Controls.Add(BTN_RandomEVs);
             FLP_PKMEditors.Controls.Add(BTN_NaturePreset);
             FLP_PKMEditors.Controls.Add(BTN_RandomAVs);
@@ -1308,6 +1310,19 @@ namespace PKHeX.WinForms.Controls
             BTN_OptimizeIVs.Text = "Optimize IVs";
             BTN_OptimizeIVs.UseVisualStyleBackColor = true;
             BTN_OptimizeIVs.Click += ClickOptimizeIVs;
+            //
+            // BTN_FixMemory
+            //
+            BTN_FixMemory.AutoSize = true;
+            BTN_FixMemory.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            BTN_FixMemory.Location = new System.Drawing.Point(552, 0);
+            BTN_FixMemory.Margin = new System.Windows.Forms.Padding(0, 0, 4, 0);
+            BTN_FixMemory.Name = "BTN_FixMemory";
+            BTN_FixMemory.Size = new System.Drawing.Size(120, 27);
+            BTN_FixMemory.TabIndex = 6;
+            BTN_FixMemory.Text = "Fix HT/OT Memory";
+            BTN_FixMemory.UseVisualStyleBackColor = true;
+            BTN_FixMemory.Click += ClickFixMemory;
             //
             // FLP_DynamaxLevel
             // 
@@ -1485,6 +1500,7 @@ namespace PKHeX.WinForms.Controls
         private System.Windows.Forms.Button BTN_RandomAVs;
         private System.Windows.Forms.Button BTN_NaturePreset;
         private System.Windows.Forms.Button BTN_OptimizeIVs;
+        private System.Windows.Forms.Button BTN_FixMemory;
         private System.Windows.Forms.FlowLayoutPanel FLP_DynamaxLevel;
         private System.Windows.Forms.Label L_DynamaxLevel;
         public System.Windows.Forms.ComboBox CB_DynamaxLevel;
