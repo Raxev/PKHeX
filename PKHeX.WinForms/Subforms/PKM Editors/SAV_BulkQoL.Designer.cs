@@ -318,7 +318,7 @@ namespace PKHeX.WinForms
             CHK_RegenTrackerEC.Name = "CHK_RegenTrackerEC";
             CHK_RegenTrackerEC.Size = new System.Drawing.Size(340, 19);
             CHK_RegenTrackerEC.TabIndex = 24;
-            CHK_RegenTrackerEC.Text = "Regenerate HOME Tracker / Encryption Constant (dodge clones)";
+            CHK_RegenTrackerEC.Text = "Regenerate PID / HOME Tracker / Encryption Constant (dodge clones)";
             CHK_RegenTrackerEC.UseVisualStyleBackColor = true;
             //
             // CHK_AutoLegalize

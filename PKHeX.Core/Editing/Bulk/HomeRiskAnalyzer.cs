@@ -18,7 +18,7 @@ namespace PKHeX.Core;
 /// this; it's reported purely as an FYI so a HOME rejection on one of these isn't mistaken for a clone/tracker
 /// problem.</item>
 /// <item><b>Tracker/PID/EC collision ("duplicate risk")</b>: see <see cref="CloneDetector"/> — this one <i>is</i>
-/// fixable, via <see cref="BulkQoLEditor.RegenerateTrackerAndECForAll"/>.</item>
+/// fixable, via <see cref="BulkQoLEditor.RegeneratePIDTrackerAndECForAll"/>.</item>
 /// </list>
 /// </remarks>
 public static class HomeRiskAnalyzer

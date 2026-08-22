@@ -21,7 +21,34 @@ public static class CloneDetector
     /// <param name="Description">Human-readable explanation of what matched.</param>
     /// <param name="First">The entity the finding is about.</param>
     /// <param name="Second">The other entity it collides with, if the finding is a pairwise match.</param>
-    public readonly record struct Finding(string Description, SlotCache First, SlotCache? Second);
+    /// <param name="Code">The raw result code -- determines which of <paramref name="First"/>/<paramref name="Second"/>
+    /// is safe to auto-regenerate (see <see cref="DuplicateSlot"/>); the underlying analyzers don't agree on which
+    /// side is "first-seen" vs "newly-detected duplicate" across finding types, so this can't be guessed from
+    /// <paramref name="Description"/> alone.</param>
+    public readonly record struct Finding(string Description, SlotCache First, SlotCache? Second, LegalityCheckResultCode Code)
+    {
+        /// <summary>
+        /// Whichever of <see cref="First"/>/<see cref="Second"/> is the newly-detected duplicate copy (safe to
+        /// regenerate a fresh identity for) rather than the first-seen original (left untouched) -- or null if
+        /// this finding isn't a pairwise match with a clear "duplicate side" (e.g. a duplicated Mystery Gift egg).
+        /// </summary>
+        public SlotCache? DuplicateSlot => Code switch
+        {
+            // StandardCloneChecker's AddLine index args happen to put the newly-detected duplicate at index1
+            // (-> First) for both of its finding types.
+            LegalityCheckResultCode.BulkCloneDetectedTracker => First,
+            LegalityCheckResultCode.BulkCloneDetectedDetails => First,
+            // DuplicatePIDChecker/DuplicateEncryptionChecker instead put the first-seen original at index1
+            // (-> First) and the newly-detected duplicate at index2 (-> Second) -- the opposite convention.
+            LegalityCheckResultCode.BulkSharingPIDGenerationDifferent or
+            LegalityCheckResultCode.BulkSharingPIDGenerationSame or
+            LegalityCheckResultCode.BulkSharingPIDEncounterType or
+            LegalityCheckResultCode.BulkSharingEncryptionConstantGenerationDifferent or
+            LegalityCheckResultCode.BulkSharingEncryptionConstantGenerationSame or
+            LegalityCheckResultCode.BulkSharingEncryptionConstantEncounterType => Second,
+            _ => null,
+        };
+    }
 
     private static readonly HashSet<LegalityCheckResultCode> CloneRelatedCodes =
     [
@@ -47,7 +74,7 @@ public static class CloneDetector
 
             var first = analysis.AllData[index1];
             SlotCache? second = index2 == BulkCheckResult.NoIndex ? null : analysis.AllData[index2];
-            findings.Add(new Finding(Describe(chk.Result), first, second));
+            findings.Add(new Finding(Describe(chk.Result), first, second, chk.Result));
         }
         return findings;
     }

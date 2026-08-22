@@ -302,23 +302,27 @@ public static class BulkQoLEditor
     }
 
     /// <summary>
-    /// Regenerates the HOME Tracker (when one is already present) and/or Encryption Constant (Gen6+ only) to
-    /// fresh random values, reverting any entity that becomes illegal as a result. Intended to resolve a HOME
-    /// upload rejection caused by a cloned Tracker/PID/EC collision (see <see cref="CloneDetector"/>) without
-    /// touching anything else about the entity — species/IVs/moves/etc. are left exactly as they are.
+    /// Regenerates the PID (Gen3+), HOME Tracker (when one is already present), and Encryption Constant (Gen6+)
+    /// to fresh random values -- while preserving species/gender/nature/form/shininess exactly -- reverting any
+    /// entity that becomes illegal as a result. Intended to resolve a HOME upload rejection caused by a cloned
+    /// PID/Tracker/EC collision (see <see cref="CloneDetector"/>).
     /// </summary>
     /// <remarks>
-    /// Only entities that already have a nonzero <see cref="IHomeTrack.Tracker"/> are touched there — giving a
-    /// fake Tracker to an entity that has never been through HOME is itself a legality violation
-    /// (<c>TransferTrackerShouldBeZero</c>), and the guard would just revert it anyway.
+    /// PID regeneration is the important part here, not an afterthought: <see cref="CloneDetector"/>'s most
+    /// common finding (<c>BulkCloneDetectedDetails</c>, and the raw-PID-sharing findings) is keyed on
+    /// Species+PID+IVs+Form -- an <i>earlier version of this method only touched Tracker/EC, which does nothing
+    /// to break that particular collision</i> (PID is untouched by an EC change). Reuses <see cref="PKM.SetShiny"/>
+    /// and <see cref="PKM.SetPIDGender"/> -- both already-correct, already-tested PKHeX primitives -- to reroll
+    /// PID while looping until the entity's current shininess is preserved, rather than hand-rolling PID math.
     /// <para/>
-    /// Encryption Constant is only independently regenerated for Format 6+: Generations 3-5 <i>define</i> EC as
-    /// equal to PID (see <see cref="CommonEdits.SetRandomEC"/>), so there's nothing to change there without also
-    /// changing PID — a much bigger, riskier operation (can cascade into shininess/IVs/gender/nature) that this
-    /// method deliberately does not attempt. Entities with neither applicable are reported as skipped rather than
-    /// silently counted as "fixed".
+    /// The HOME Tracker is only touched when it's already nonzero -- giving a fake Tracker to an entity that has
+    /// never been through HOME is itself a legality violation (<c>TransferTrackerShouldBeZero</c>), and the
+    /// guard would just revert it anyway. Encryption Constant is independently regenerated only for Format 6+:
+    /// Generations 3-5 <i>define</i> EC as equal to PID (see <see cref="CommonEdits.SetRandomEC"/>), which the
+    /// PID reroll above already keeps in sync for those entities. Entities with nothing applicable (a Gen1/2
+    /// entity with no PID and no Tracker) are reported as skipped rather than silently counted as "fixed".
     /// </remarks>
-    public static BulkEditResult RegenerateTrackerAndECForAll(IEnumerable<PKM> mons)
+    public static BulkEditResult RegeneratePIDTrackerAndECForAll(IEnumerable<PKM> mons)
     {
         int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNothingToDo = 0;
         foreach (var pk in mons)
@@ -329,27 +333,36 @@ public static class BulkQoLEditor
                 continue;
             }
 
+            var hasPIDToChange = pk.Format >= 3; // Gen1/2 have no PID -- DVs instead, not touched here
             var hasTrackerToChange = pk is IHomeTrack { Tracker: not 0 };
-            var hasECToChange = pk.Format >= 6;
-            if (!hasTrackerToChange && !hasECToChange)
+            if (!hasPIDToChange && !hasTrackerToChange)
             {
                 skippedNothingToDo++;
                 continue;
             }
 
-            if (TryApplyGuarded(pk, RegenerateTrackerAndEC))
+            if (TryApplyGuarded(pk, RegenerateIdentity))
                 modified++;
             else
                 skippedIllegal++;
         }
         return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNothingToDo);
 
-        static void RegenerateTrackerAndEC(PKM pk)
+        static void RegenerateIdentity(PKM pk)
         {
             if (pk is IHomeTrack { Tracker: not 0 } home)
                 home.Tracker = GetRandomNonZeroTracker();
+            if (pk.Format >= 3)
+            {
+                // Reroll PID keeping species/gender/version/nature/form and current shininess identical --
+                // these two existing primitives also keep EncryptionConstant in sync for Gen3-5 (EC == PID there).
+                if (pk.IsShiny)
+                    pk.SetShiny();
+                else
+                    pk.SetPIDGender(pk.Gender);
+            }
             if (pk.Format >= 6)
-                pk.SetRandomEC();
+                pk.SetRandomEC(); // Gen6+ EC is independent of PID; the reroll above only synced it for Gen3-5 origin
         }
     }
 

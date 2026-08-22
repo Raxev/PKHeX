@@ -194,29 +194,111 @@ public partial class SAV_BulkQoL : Form
             return;
         }
 
-        var lines = findings
-            .Select(f => f.Second is { } second
-                ? $"{f.Description}\n  [{f.First.Identify()}]\n  [{second.Identify()}]"
-                : $"{f.Description}\n  [{f.First.Identify()}]")
-            .ToArray();
+        var lines = SummarizeFindings(findings);
         WinFormsUtil.Alert([$"{findings.Count} likely clone(s)/duplicate(s) found:", .. lines, giftNotice]);
 
-        var fixable = findings.Where(f => f.Second is not null).Select(f => f.Second!).ToList();
+        var fixable = findings.Where(f => f.DuplicateSlot is not null).Select(f => f.DuplicateSlot!).ToList();
         if (fixable.Count == 0)
             return; // e.g. only a duplicate-gift-egg finding, which has no safe automatic fix
 
+        // DistinctBy: a Pokémon involved in 3+ mutually-identical copies produces multiple findings all pointing
+        // back to the same first-seen original, but each finding's *other* side is still a distinct duplicate --
+        // this collects every one of those in a single pass rather than fixing only one per round.
         var distinctFixable = fixable.DistinctBy(s => s.Entity).ToList();
         var reply = WinFormsUtil.Prompt(MessageBoxButtons.YesNo,
-            $"Regenerate the HOME Tracker/Encryption Constant now for the {distinctFixable.Count} later-listed copy in each pair above?",
-            "The earlier-listed copy in each pair is left untouched. Reverts per-Pokémon if the change would make it illegal.");
+            $"Regenerate the PID/HOME Tracker/Encryption Constant now for the {distinctFixable.Count} newly-detected duplicate(s) above (the first-seen original in each group is left untouched)?",
+            "Species/gender/nature/form/shininess are preserved exactly. Reverts per-Pokémon if the change would make it illegal.");
         if (reply != DialogResult.Yes)
             return;
 
-        var fixResult = BulkQoLEditor.RegenerateTrackerAndECForAll(distinctFixable.Select(s => s.Entity));
+        var fixResult = BulkQoLEditor.RegeneratePIDTrackerAndECForAll(distinctFixable.Select(s => s.Entity));
         foreach (var slot in distinctFixable)
             slot.Source.WriteTo(SAV, slot.Entity, EntityImportSettings.None);
-        WinFormsUtil.Alert($"Regenerate HOME Tracker/EC: {fixResult.Modified} regenerated, {fixResult.SkippedIllegal} skipped (would be illegal), {fixResult.AlreadyLegal} skipped (no Tracker/EC to change).",
-            "Re-run Check for Clones to confirm they no longer collide.");
+
+        // Re-verify immediately rather than making the user click Check for Clones again to find out whether it
+        // actually worked -- a leftover count here means those specific entities failed the legality guard
+        // (e.g. a genuine fixed-PID event) and need manual attention instead.
+        var leftover = CloneDetector.FindLikelyClones(SAV);
+        WinFormsUtil.Alert($"Regenerate PID/Tracker/EC: {fixResult.Modified} regenerated, {fixResult.SkippedIllegal} skipped (would be illegal), {fixResult.AlreadyLegal} skipped (nothing applicable).",
+            leftover.Count == 0
+                ? "Re-verified: no more likely clones/duplicates in this save."
+                : $"Re-verified: {leftover.Count} finding(s) still remain -- likely entities where regenerating would have made them illegal (see skipped count above), so they were left as-is.");
+    }
+
+    /// <summary>
+    /// Groups pairwise findings into clusters (one line per group of mutually-identical/colliding Pokémon)
+    /// instead of one line per pair -- a save with e.g. 8 identical cloned Miraidon produces 7 pairwise findings
+    /// (each compared against the same first-seen original), which reads far better as one "8 copies" line.
+    /// </summary>
+    private static readonly HashSet<LegalityCheckResultCode> IdenticalCopyCodes =
+    [
+        LegalityCheckResultCode.BulkCloneDetectedTracker,
+        LegalityCheckResultCode.BulkCloneDetectedDetails,
+    ];
+
+    private static string[] SummarizeFindings(IReadOnlyList<CloneDetector.Finding> findings)
+    {
+        // Only cluster genuine "identical copy of the same Pokémon" findings -- a PID/EC-sharing finding can
+        // pair two entirely different species/individuals (suspicious, but not each other's clone), so those
+        // are always reported as their own pair line rather than folded into a same-species cluster.
+        var parent = new Dictionary<PKM, PKM>();
+        PKM Find(PKM x)
+        {
+            while (parent.TryGetValue(x, out var p) && p != x)
+                x = p;
+            return x;
+        }
+        void Union(PKM a, PKM b)
+        {
+            parent.TryAdd(a, a);
+            parent.TryAdd(b, b);
+            var ra = Find(a);
+            var rb = Find(b);
+            if (ra != rb)
+                parent[ra] = rb;
+        }
+
+        var slotByEntity = new Dictionary<PKM, SlotCache>();
+        var otherLines = new List<string>();
+        foreach (var f in findings)
+        {
+            if (IdenticalCopyCodes.Contains(f.Code) && f.Second is { } identical)
+            {
+                slotByEntity[f.First.Entity] = f.First;
+                slotByEntity[identical.Entity] = identical;
+                Union(f.First.Entity, identical.Entity);
+            }
+            else if (f.Second is { } second)
+            {
+                otherLines.Add($"{f.Description}\n  [{f.First.Identify()}]\n  [{second.Identify()}]");
+            }
+            else
+            {
+                otherLines.Add($"{f.Description}\n  [{f.First.Identify()}]");
+            }
+        }
+
+        var clusters = new Dictionary<PKM, List<PKM>>();
+        foreach (var entity in slotByEntity.Keys)
+        {
+            var root = Find(entity);
+            if (!clusters.TryGetValue(root, out var members))
+                clusters[root] = members = [];
+            members.Add(entity);
+        }
+
+        return clusters.Values
+            .OrderByDescending(g => g.Count)
+            .Select(group =>
+            {
+                var sample = group[0];
+                var shiny = sample.IsShiny ? "★ " : "";
+                var name = GameInfo.Strings.specieslist[sample.Species];
+                var slots = group.Select(e => "  [" + slotByEntity[e].Identify() + "]").OrderBy(s => s, StringComparer.Ordinal);
+                return $"{shiny}{name} (Form {sample.Form}): {group.Count} copies share an identical PID/IVs/form --\n" + string.Join("\n", slots);
+            })
+            .Concat(otherLines)
+            .ToArray();
     }
 
     private void ShowBusy()
@@ -372,8 +454,8 @@ public partial class SAV_BulkQoL : Form
         {
             // Also before auto-legalize: a full regeneration already assigns a fresh PID/EC by construction,
             // so this mainly matters for entities that keep their original (non-regenerated) data.
-            var result = BulkQoLEditor.RegenerateTrackerAndECForAll(eligible.Select(s => s.Entity));
-            lines.Add($"Regenerate HOME Tracker/EC: {result.Modified} regenerated, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (no Tracker/EC to change), {result.SkippedInvalid} skipped (empty)");
+            var result = BulkQoLEditor.RegeneratePIDTrackerAndECForAll(eligible.Select(s => s.Entity));
+            lines.Add($"Regenerate PID/Tracker/EC: {result.Modified} regenerated, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (nothing applicable), {result.SkippedInvalid} skipped (empty)");
         }
         if (Cancelled(ct, lines)) return lines;
         if (plan.AutoLegalize)
