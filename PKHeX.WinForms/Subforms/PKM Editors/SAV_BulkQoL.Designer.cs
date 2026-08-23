@@ -45,6 +45,7 @@ namespace PKHeX.WinForms
             CHK_Shiny = new System.Windows.Forms.CheckBox();
             RB_ShinyOn = new System.Windows.Forms.RadioButton();
             RB_ShinyOff = new System.Windows.Forms.RadioButton();
+            CHK_PreferSquare = new System.Windows.Forms.CheckBox();
             CHK_MaxIVs = new System.Windows.Forms.CheckBox();
             CHK_MaxSize = new System.Windows.Forms.CheckBox();
             CHK_NaturePreset = new System.Windows.Forms.CheckBox();
@@ -232,10 +233,22 @@ namespace PKHeX.WinForms
             RB_ShinyOff.Text = "Not Shiny";
             RB_ShinyOff.UseVisualStyleBackColor = true;
             //
+            // CHK_PreferSquare
+            //
+            CHK_PreferSquare.AutoSize = true;
+            CHK_PreferSquare.Checked = true;
+            CHK_PreferSquare.CheckState = System.Windows.Forms.CheckState.Checked;
+            CHK_PreferSquare.Location = new System.Drawing.Point(160, 189);
+            CHK_PreferSquare.Name = "CHK_PreferSquare";
+            CHK_PreferSquare.Size = new System.Drawing.Size(220, 19);
+            CHK_PreferSquare.TabIndex = 16;
+            CHK_PreferSquare.Text = "Prefer Square shiny (Gen8+)";
+            CHK_PreferSquare.UseVisualStyleBackColor = true;
+            //
             // CHK_MaxIVs
             //
             CHK_MaxIVs.AutoSize = true;
-            CHK_MaxIVs.Location = new System.Drawing.Point(14, 192);
+            CHK_MaxIVs.Location = new System.Drawing.Point(14, 217);
             CHK_MaxIVs.Name = "CHK_MaxIVs";
             CHK_MaxIVs.Size = new System.Drawing.Size(150, 19);
             CHK_MaxIVs.TabIndex = 16;
@@ -245,7 +258,7 @@ namespace PKHeX.WinForms
             // CHK_MaxSize
             //
             CHK_MaxSize.AutoSize = true;
-            CHK_MaxSize.Location = new System.Drawing.Point(14, 217);
+            CHK_MaxSize.Location = new System.Drawing.Point(14, 242);
             CHK_MaxSize.Name = "CHK_MaxSize";
             CHK_MaxSize.Size = new System.Drawing.Size(280, 19);
             CHK_MaxSize.TabIndex = 17;
@@ -255,7 +268,7 @@ namespace PKHeX.WinForms
             // CHK_NaturePreset
             //
             CHK_NaturePreset.AutoSize = true;
-            CHK_NaturePreset.Location = new System.Drawing.Point(14, 242);
+            CHK_NaturePreset.Location = new System.Drawing.Point(14, 267);
             CHK_NaturePreset.Name = "CHK_NaturePreset";
             CHK_NaturePreset.Size = new System.Drawing.Size(220, 19);
             CHK_NaturePreset.TabIndex = 18;
@@ -266,7 +279,7 @@ namespace PKHeX.WinForms
             //
             CB_NaturePreset.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             CB_NaturePreset.FormattingEnabled = true;
-            CB_NaturePreset.Location = new System.Drawing.Point(240, 239);
+            CB_NaturePreset.Location = new System.Drawing.Point(240, 264);
             CB_NaturePreset.Name = "CB_NaturePreset";
             CB_NaturePreset.Size = new System.Drawing.Size(100, 23);
             CB_NaturePreset.TabIndex = 19;
@@ -274,7 +287,7 @@ namespace PKHeX.WinForms
             // CHK_OptimizeIVs
             //
             CHK_OptimizeIVs.AutoSize = true;
-            CHK_OptimizeIVs.Location = new System.Drawing.Point(14, 267);
+            CHK_OptimizeIVs.Location = new System.Drawing.Point(14, 292);
             CHK_OptimizeIVs.Name = "CHK_OptimizeIVs";
             CHK_OptimizeIVs.Size = new System.Drawing.Size(340, 19);
             CHK_OptimizeIVs.TabIndex = 20;
@@ -284,7 +297,7 @@ namespace PKHeX.WinForms
             // CHK_MaxPP
             //
             CHK_MaxPP.AutoSize = true;
-            CHK_MaxPP.Location = new System.Drawing.Point(14, 292);
+            CHK_MaxPP.Location = new System.Drawing.Point(14, 317);
             CHK_MaxPP.Name = "CHK_MaxPP";
             CHK_MaxPP.Size = new System.Drawing.Size(180, 19);
             CHK_MaxPP.TabIndex = 21;
@@ -294,7 +307,7 @@ namespace PKHeX.WinForms
             // CHK_FixMoves
             //
             CHK_FixMoves.AutoSize = true;
-            CHK_FixMoves.Location = new System.Drawing.Point(14, 317);
+            CHK_FixMoves.Location = new System.Drawing.Point(14, 342);
             CHK_FixMoves.Name = "CHK_FixMoves";
             CHK_FixMoves.Size = new System.Drawing.Size(280, 19);
             CHK_FixMoves.TabIndex = 22;
@@ -304,7 +317,7 @@ namespace PKHeX.WinForms
             // CHK_FixTrashMemory
             //
             CHK_FixTrashMemory.AutoSize = true;
-            CHK_FixTrashMemory.Location = new System.Drawing.Point(14, 342);
+            CHK_FixTrashMemory.Location = new System.Drawing.Point(14, 367);
             CHK_FixTrashMemory.Name = "CHK_FixTrashMemory";
             CHK_FixTrashMemory.Size = new System.Drawing.Size(340, 19);
             CHK_FixTrashMemory.TabIndex = 23;
@@ -314,7 +327,7 @@ namespace PKHeX.WinForms
             // CHK_RegenTrackerEC
             //
             CHK_RegenTrackerEC.AutoSize = true;
-            CHK_RegenTrackerEC.Location = new System.Drawing.Point(14, 367);
+            CHK_RegenTrackerEC.Location = new System.Drawing.Point(14, 392);
             CHK_RegenTrackerEC.Name = "CHK_RegenTrackerEC";
             CHK_RegenTrackerEC.Size = new System.Drawing.Size(340, 19);
             CHK_RegenTrackerEC.TabIndex = 24;
@@ -324,7 +337,7 @@ namespace PKHeX.WinForms
             // CHK_AutoLegalize
             //
             CHK_AutoLegalize.AutoSize = true;
-            CHK_AutoLegalize.Location = new System.Drawing.Point(14, 392);
+            CHK_AutoLegalize.Location = new System.Drawing.Point(14, 417);
             CHK_AutoLegalize.Name = "CHK_AutoLegalize";
             CHK_AutoLegalize.Size = new System.Drawing.Size(280, 19);
             CHK_AutoLegalize.TabIndex = 25;
@@ -333,7 +346,7 @@ namespace PKHeX.WinForms
             //
             // L_LegalNotice
             //
-            L_LegalNotice.Location = new System.Drawing.Point(12, 417);
+            L_LegalNotice.Location = new System.Drawing.Point(12, 442);
             L_LegalNotice.Name = "L_LegalNotice";
             L_LegalNotice.Size = new System.Drawing.Size(360, 60);
             L_LegalNotice.TabIndex = 26;
@@ -341,7 +354,7 @@ namespace PKHeX.WinForms
             //
             // PB_Progress
             //
-            PB_Progress.Location = new System.Drawing.Point(12, 482);
+            PB_Progress.Location = new System.Drawing.Point(12, 507);
             PB_Progress.Name = "PB_Progress";
             PB_Progress.Size = new System.Drawing.Size(268, 20);
             PB_Progress.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
@@ -350,7 +363,7 @@ namespace PKHeX.WinForms
             //
             // B_Cancel
             //
-            B_Cancel.Location = new System.Drawing.Point(286, 480);
+            B_Cancel.Location = new System.Drawing.Point(286, 505);
             B_Cancel.Name = "B_Cancel";
             B_Cancel.Size = new System.Drawing.Size(74, 24);
             B_Cancel.TabIndex = 30;
@@ -361,7 +374,7 @@ namespace PKHeX.WinForms
             //
             // B_CheckClones
             //
-            B_CheckClones.Location = new System.Drawing.Point(12, 512);
+            B_CheckClones.Location = new System.Drawing.Point(12, 537);
             B_CheckClones.Name = "B_CheckClones";
             B_CheckClones.Size = new System.Drawing.Size(150, 27);
             B_CheckClones.TabIndex = 31;
@@ -371,7 +384,7 @@ namespace PKHeX.WinForms
             //
             // B_Run
             //
-            B_Run.Location = new System.Drawing.Point(178, 512);
+            B_Run.Location = new System.Drawing.Point(178, 537);
             B_Run.Name = "B_Run";
             B_Run.Size = new System.Drawing.Size(88, 27);
             B_Run.TabIndex = 32;
@@ -381,7 +394,7 @@ namespace PKHeX.WinForms
             //
             // B_Close
             //
-            B_Close.Location = new System.Drawing.Point(272, 512);
+            B_Close.Location = new System.Drawing.Point(272, 537);
             B_Close.Name = "B_Close";
             B_Close.Size = new System.Drawing.Size(88, 27);
             B_Close.TabIndex = 33;
@@ -392,7 +405,7 @@ namespace PKHeX.WinForms
             // SAV_BulkQoL
             //
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
-            ClientSize = new System.Drawing.Size(384, 552);
+            ClientSize = new System.Drawing.Size(384, 577);
             Controls.Add(L_Scope);
             Controls.Add(RB_Boxes);
             Controls.Add(RB_Party);
@@ -410,6 +423,7 @@ namespace PKHeX.WinForms
             Controls.Add(CHK_Shiny);
             Controls.Add(RB_ShinyOn);
             Controls.Add(RB_ShinyOff);
+            Controls.Add(CHK_PreferSquare);
             Controls.Add(CHK_MaxIVs);
             Controls.Add(CHK_MaxSize);
             Controls.Add(CHK_NaturePreset);
@@ -456,6 +470,7 @@ namespace PKHeX.WinForms
         private System.Windows.Forms.CheckBox CHK_Shiny;
         private System.Windows.Forms.RadioButton RB_ShinyOn;
         private System.Windows.Forms.RadioButton RB_ShinyOff;
+        private System.Windows.Forms.CheckBox CHK_PreferSquare;
         private System.Windows.Forms.CheckBox CHK_MaxIVs;
         private System.Windows.Forms.CheckBox CHK_MaxSize;
         private System.Windows.Forms.CheckBox CHK_NaturePreset;

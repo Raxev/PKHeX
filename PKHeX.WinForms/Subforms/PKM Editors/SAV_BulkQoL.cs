@@ -61,7 +61,7 @@ public partial class SAV_BulkQoL : Form
         bool FilterGiftOrigin,
         bool Ball, byte BallValue,
         bool MetLocation, ushort MetLocationValue,
-        bool Shiny, bool ShinyValue,
+        bool Shiny, bool ShinyValue, bool PreferSquare,
         bool MaxIVs,
         bool MaxSize,
         bool NaturePreset, BulkQoLEditor.NatureEVPreset NaturePresetValue,
@@ -79,7 +79,7 @@ public partial class SAV_BulkQoL : Form
         CHK_FilterGiftOrigin.Checked,
         CHK_Ball.Checked, (byte)WinFormsUtil.GetIndex(CB_Ball),
         CHK_MetLocation.Checked, (ushort)WinFormsUtil.GetIndex(CB_MetLocation),
-        CHK_Shiny.Checked, RB_ShinyOn.Checked,
+        CHK_Shiny.Checked, RB_ShinyOn.Checked, CHK_PreferSquare.Checked,
         CHK_MaxIVs.Checked,
         CHK_MaxSize.Checked,
         CHK_NaturePreset.Checked, (BulkQoLEditor.NatureEVPreset)CB_NaturePreset.SelectedItem!,
@@ -402,8 +402,9 @@ public partial class SAV_BulkQoL : Form
         if (Cancelled(ct, lines)) return lines;
         if (plan.Shiny)
         {
-            var result = BulkQoLEditor.SetShinyForAll(eligible.Select(s => s.Entity), plan.ShinyValue);
-            lines.Add(Describe(plan.ShinyValue ? "Shiny" : "Not Shiny", result));
+            var result = BulkQoLEditor.SetShinyForAll(eligible.Select(s => s.Entity), plan.ShinyValue, plan.PreferSquare);
+            var label = plan.ShinyValue ? (plan.PreferSquare ? "Shiny (prefer Square)" : "Shiny") : "Not Shiny";
+            lines.Add(Describe(label, result));
         }
         if (Cancelled(ct, lines)) return lines;
         if (plan.MaxIVs)

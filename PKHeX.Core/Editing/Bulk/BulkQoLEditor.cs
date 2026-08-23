@@ -48,8 +48,46 @@ public static class BulkQoLEditor
     /// Sets the shiny state on every entity, reverting any entity that becomes illegal as a result
     /// (e.g. a fixed-PID event encounter that cannot legally be shiny).
     /// </summary>
-    public static BulkEditResult SetShinyForAll(IEnumerable<PKM> mons, bool shiny) =>
-        ApplyGuardedToAll(mons, pk => pk.SetIsShiny(shiny));
+    /// <param name="preferSquare">
+    /// When making entities shiny, aim for Square (<see cref="PKM.ShinyXor"/> == 0) rather than Star.
+    /// Only meaningful for Format 8+, which is where the two are visually differentiated
+    /// (see <see cref="ShinyExtensions.IsSquareShinyExist"/>). Entities that cannot legally be Square
+    /// fall back to an ordinary shiny rather than being left unchanged.
+    /// </param>
+    public static BulkEditResult SetShinyForAll(IEnumerable<PKM> mons, bool shiny, bool preferSquare = true)
+    {
+        if (!shiny)
+            return ApplyGuardedToAll(mons, pk => pk.SetIsShiny(false));
+
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+
+            // Try Square first, then settle for any shiny. Two guarded attempts rather than one, so an
+            // encounter that is locked to Star (or a fixed-PID gift) still ends up shiny instead of being
+            // reverted entirely just because the Square preference couldn't be honoured.
+            if (CanPreferSquare(pk, preferSquare) && TryApplyGuarded(pk, static p => p.SetShiny(Shiny.AlwaysSquare)))
+                modified++;
+            else if (TryApplyGuarded(pk, static p => p.SetIsShiny(true)))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid);
+    }
+
+    /// <summary>
+    /// Square vs. Star is only a distinct thing from Gen8 onward. <see cref="CommonEdits.SetShiny"/> also
+    /// refuses to honour a specific shiny type for fateful/GO entities (it falls back to a plain reroll), so
+    /// there's no point paying for the attempt on those.
+    /// </summary>
+    private static bool CanPreferSquare(PKM pk, bool preferSquare) =>
+        preferSquare && pk.Format >= 8 && !pk.FatefulEncounter && pk.Version != GameVersion.GO;
 
     /// <summary>
     /// Maxes out PP Ups (and heals PP to match) for every move slot on every entity, reverting any entity
@@ -412,16 +450,39 @@ public static class BulkQoLEditor
                 home.Tracker = 0;
             if (pk.Format >= 3)
             {
-                // Reroll PID keeping species/gender/version/nature/form and current shininess identical --
+                // Reroll PID keeping species/gender/version/nature/form and shininess identical --
                 // these two existing primitives also keep EncryptionConstant in sync for Gen3-5 (EC == PID there).
                 if (pk.IsShiny)
-                    pk.SetShiny();
+                    RerollShinyPID(pk);
                 else
                     pk.SetPIDGender(pk.Gender);
             }
             if (pk.Format >= 6)
                 pk.SetRandomEC(); // Gen6+ EC is independent of PID; the reroll above only synced it for Gen3-5 origin
         }
+    }
+
+    /// <summary>
+    /// Rerolls a shiny entity's PID, aiming for Square (<see cref="PKM.ShinyXor"/> == 0) where the format
+    /// differentiates it. Always changes the PID, which is the whole point when de-cloning.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="CommonEdits.SetShiny(Shiny)"/>: that early-returns without touching the PID
+    /// when the entity already satisfies the requested type, so an already-Square clone would keep its colliding
+    /// PID and never actually get de-cloned.
+    /// <para/>
+    /// <see cref="PKM.SetShiny"/> loops only until <see cref="PKM.IsShiny"/> (xor &lt; 16), so ~15/16 of rerolls
+    /// land on Star -- meaning the previous implementation silently downgraded Square shinies to Star. The retry
+    /// loop below is bounded; each attempt has a ~1/16 chance on a Gen6+ (unconstrained) PID, so it converges
+    /// quickly, and worst case we simply keep the Star we already have.
+    /// </remarks>
+    private static void RerollShinyPID(PKM pk)
+    {
+        pk.SetShiny();
+        if (!CanPreferSquare(pk, preferSquare: true))
+            return;
+        for (int i = 0; i < 256 && pk.ShinyXor != 0; i++)
+            pk.SetShiny();
     }
 
     private static void FixHandlingTrainerLanguage(PKM pk, SaveFile sav, bool giftKeepsLanguage)
