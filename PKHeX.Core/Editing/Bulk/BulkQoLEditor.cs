@@ -130,9 +130,9 @@ public static class BulkQoLEditor
     /// </summary>
     public enum NatureEVPreset
     {
-        /// <summary>252 Atk / 252 Spe, +Atk -SpA.</summary>
+        /// <summary>252 Atk / 252 Spe, +Spe -SpA.</summary>
         Jolly,
-        /// <summary>252 SpA / 252 Spe, +SpA -Atk.</summary>
+        /// <summary>252 SpA / 252 Spe, +Spe -Atk.</summary>
         Timid,
         /// <summary>252 Atk / 252 Spe, +Atk -SpA.</summary>
         Adamant,
@@ -227,6 +227,13 @@ public static class BulkQoLEditor
                 s2.HeightScalar = byte.MaxValue;
                 s2.WeightScalar = byte.MaxValue;
             }
+            // Gen9 awards the Jumbo Mark automatically at capture when Scale is maxed, so "max Scale without the
+            // mark" is a state the game itself never produces. PKHeX won't flag it -- RibbonVerifierMark9 only
+            // checks mark-without-scale, not scale-without-mark -- but it leaves an inconsistency visible to
+            // anything that cross-checks the pair. The guard reverts if this encounter can't legally hold the
+            // mark (see MarkRules.IsEncounterMarkLost, e.g. Nincada -> Shedinja), so it's safe to just try.
+            if (pk is IRibbonSetMark9 { RibbonMarkJumbo: false } mark9 && pk is IScaledSize3 { Scale: byte.MaxValue })
+                mark9.RibbonMarkJumbo = true;
             // Resync the derived displayed height/weight (meters/kg) where the format tracks it separately;
             // stale Absolute values aren't a legality problem here, but leaving them stale would be a visible bug.
             if (pk is IScaledSizeValue sv)
@@ -259,22 +266,65 @@ public static class BulkQoLEditor
     /// the full regeneration <see cref="BulkAutoLegalize"/> (Auto-enforce legality) already does by re-deriving
     /// the matched encounter.
     /// </remarks>
-    public static BulkEditResult FixTrashAndMemoryForAll(IEnumerable<PKM> mons, SaveFile sav) =>
-        ApplyGuardedToAll(mons, pk =>
+    public static BulkEditResult FixTrashAndMemoryForAll(IEnumerable<PKM> mons, SaveFile sav)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0;
+        foreach (var pk in mons)
         {
-            if (pk.Format >= 8 || pk.Context == EntityContext.Gen7b)
+            if (pk.Species == 0)
             {
-                pk.SetString(pk.NicknameTrash, pk.Nickname, pk.Nickname.Length, StringConverterOption.ClearZero);
-                pk.SetString(pk.OriginalTrainerTrash, pk.OriginalTrainerName, pk.OriginalTrainerName.Length, StringConverterOption.ClearZero);
-                if (pk.HandlingTrainerTrash.Length != 0)
-                    pk.SetString(pk.HandlingTrainerTrash, pk.HandlingTrainerName, pk.HandlingTrainerName.Length, StringConverterOption.ClearZero);
+                skippedInvalid++;
+                continue;
             }
-            FixHandlingTrainerMemory(pk);
-            FixHandlingTrainerLanguage(pk, sav);
-        });
+
+            // Resolve the matched encounter BEFORE mutating: a handful of Gen9 gift encounters legitimately ship
+            // with a Handling Trainer language even while untraded, and must keep it (MemoryVerifier lines
+            // 102-110). Everything else untraded must have it zeroed. Deciding this mid-mutation would mean
+            // matching an encounter against half-edited data.
+            bool giftKeepsLanguage;
+            try
+            {
+                giftKeepsLanguage = new LegalityAnalysis(pk).EncounterMatch is EncounterStatic9 { GiftWithLanguage: true };
+            }
+            catch (Exception)
+            {
+                giftKeepsLanguage = false;
+            }
+
+            if (TryApplyGuarded(pk, Fix))
+                modified++;
+            else
+                skippedIllegal++;
+
+            void Fix(PKM entity)
+            {
+                if (entity.Format >= 8 || entity.Context == EntityContext.Gen7b)
+                {
+                    entity.SetString(entity.NicknameTrash, entity.Nickname, entity.Nickname.Length, StringConverterOption.ClearZero);
+                    entity.SetString(entity.OriginalTrainerTrash, entity.OriginalTrainerName, entity.OriginalTrainerName.Length, StringConverterOption.ClearZero);
+                    if (entity.HandlingTrainerTrash.Length != 0)
+                        entity.SetString(entity.HandlingTrainerTrash, entity.HandlingTrainerName, entity.HandlingTrainerName.Length, StringConverterOption.ClearZero);
+                }
+                FixHandlingTrainerMemory(entity);
+                FixHandlingTrainerLanguage(entity, sav, giftKeepsLanguage);
+            }
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid);
+    }
 
     private static void FixHandlingTrainerMemory(PKM pk)
     {
+        // PK9 has its own canonical routine that clears more than the four memory fields -- for an untraded
+        // entity it also zeroes HandlingTrainerGender/Friendship and the HT name trash (deliberately leaving
+        // HandlingTrainerLanguage alone, which gifts require). Clearing only the memories left
+        // HandlingTrainerFriendship populated, which HistoryVerifier flags Invalid -- so the guard reverted the
+        // whole edit and the entity never actually got fixed.
+        if (pk is PK9 pk9)
+        {
+            pk9.FixMemories();
+            return;
+        }
+
         if (pk is not IMemoryHT ht)
             return;
 
@@ -287,7 +337,7 @@ public static class BulkQoLEditor
         // Traded: needs *some* valid HT memory (or, for the formats that dropped the requirement, none at all).
         switch (pk)
         {
-            case PK9 or PA8 or PB8:
+            case PA8 or PB8:
                 ht.ClearMemoriesHT();
                 break;
             case PK8:
@@ -315,12 +365,19 @@ public static class BulkQoLEditor
     /// and <see cref="PKM.SetPIDGender"/> -- both already-correct, already-tested PKHeX primitives -- to reroll
     /// PID while looping until the entity's current shininess is preserved, rather than hand-rolling PID math.
     /// <para/>
-    /// The HOME Tracker is only touched when it's already nonzero -- giving a fake Tracker to an entity that has
-    /// never been through HOME is itself a legality violation (<c>TransferTrackerShouldBeZero</c>), and the
-    /// guard would just revert it anyway. Encryption Constant is independently regenerated only for Format 6+:
-    /// Generations 3-5 <i>define</i> EC as equal to PID (see <see cref="CommonEdits.SetRandomEC"/>), which the
-    /// PID reroll above already keeps in sync for those entities. Entities with nothing applicable (a Gen1/2
-    /// entity with no PID and no Tracker) are reported as skipped rather than silently counted as "fixed".
+    /// An existing nonzero HOME Tracker is <b>cleared to zero</b>, never replaced with an invented value. A
+    /// Tracker is a GUID issued by HOME's own servers; PKHeX's <see cref="TransferVerifier"/> says so explicitly
+    /// ("Transfer a 0-Tracker pk to HOME to get assigned a valid Tracker via the game it originated from.
+    /// Don't make one up."). Fabricating one claims an ID HOME never issued, which HOME can check against its
+    /// own records; zero instead means "never uploaded", so HOME assigns a fresh Tracker on the next transfer.
+    /// Zeroing is also self-guarding: for entities where a Tracker is genuinely required (GO transfers, HOME
+    /// gifts, cross-generation transfers -- see <see cref="HomeTrackerUtil.IsRequired"/>) clearing it produces
+    /// <c>TransferTrackerMissing</c> and the guard reverts the whole edit, leaving those untouched.
+    /// <para/>
+    /// Encryption Constant is independently regenerated only for Format 6+: Generations 3-5 <i>define</i> EC as
+    /// equal to PID (see <see cref="CommonEdits.SetRandomEC"/>), which the PID reroll above already keeps in
+    /// sync for those entities. Entities with nothing applicable (a Gen1/2 entity with no PID and no Tracker)
+    /// are reported as skipped rather than silently counted as "fixed".
     /// </remarks>
     public static BulkEditResult RegeneratePIDTrackerAndECForAll(IEnumerable<PKM> mons)
     {
@@ -334,8 +391,8 @@ public static class BulkQoLEditor
             }
 
             var hasPIDToChange = pk.Format >= 3; // Gen1/2 have no PID -- DVs instead, not touched here
-            var hasTrackerToChange = pk is IHomeTrack { Tracker: not 0 };
-            if (!hasPIDToChange && !hasTrackerToChange)
+            var hasTrackerToClear = pk is IHomeTrack { Tracker: not 0 };
+            if (!hasPIDToChange && !hasTrackerToClear)
             {
                 skippedNothingToDo++;
                 continue;
@@ -350,8 +407,9 @@ public static class BulkQoLEditor
 
         static void RegenerateIdentity(PKM pk)
         {
+            // Clear, never fabricate -- see the remarks above.
             if (pk is IHomeTrack { Tracker: not 0 } home)
-                home.Tracker = GetRandomNonZeroTracker();
+                home.Tracker = 0;
             if (pk.Format >= 3)
             {
                 // Reroll PID keeping species/gender/version/nature/form and current shininess identical --
@@ -366,21 +424,24 @@ public static class BulkQoLEditor
         }
     }
 
-    private static ulong GetRandomNonZeroTracker()
+    private static void FixHandlingTrainerLanguage(PKM pk, SaveFile sav, bool giftKeepsLanguage)
     {
-        Span<byte> buffer = stackalloc byte[8];
-        Random.Shared.NextBytes(buffer);
-        var value = BitConverter.ToUInt64(buffer);
-        return value == 0 ? 1 : value; // 0 means "no tracker" -- reroll rather than accidentally clear it
-    }
-
-    private static void FixHandlingTrainerLanguage(PKM pk, SaveFile sav)
-    {
-        if (pk is not IHandlerLanguage lang || pk.IsUntraded)
+        if (pk is not IHandlerLanguage lang)
             return;
 
-        // Only meaningful when this save's trainer is the entity's current handler -- that's the scenario the
-        // legality checker actually compares against (HistoryVerifier.CheckHandlingTrainerEquals).
+        if (pk.IsUntraded)
+        {
+            // MemoryVerifier.GetIsHTLanguageValid: an untraded entity must have HT language 0, unless it's one of
+            // the Gen9 gift encounters that ships with one -- those must instead match the entity's own language.
+            // PK9.FixMemories deliberately won't touch this field (it can't tell the two cases apart), so a stale
+            // language left behind by hand-removing a Handling Trainer would otherwise make the whole guarded
+            // edit revert, silently failing to fix anything.
+            lang.HandlingTrainerLanguage = giftKeepsLanguage ? (byte)pk.Language : (byte)0;
+            return;
+        }
+
+        // Traded: only meaningful when this save's trainer is the entity's current handler -- that's the scenario
+        // the legality checker actually compares against (HistoryVerifier.CheckHandlingTrainerEquals).
         if (pk.CurrentHandler == 1 && lang.HandlingTrainerLanguage != sav.Language)
             lang.HandlingTrainerLanguage = (byte)sav.Language;
     }
