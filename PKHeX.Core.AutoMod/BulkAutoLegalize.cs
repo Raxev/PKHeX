@@ -20,7 +20,13 @@ public static class BulkAutoLegalize
         public int Total => Modified + Failed + AlreadyLegal + SkippedInvalid;
     }
 
-    public static Result LegalizeAll(IEnumerable<PKM> mons, SaveFile sav)
+    /// <param name="preferSquare">
+    /// When the entity being regenerated is shiny, ask the legalizer for a Square shiny
+    /// (<see cref="PKM.ShinyXor"/> == 0) rather than whatever type it currently has. Only meaningful for
+    /// Format 8+, where the two are visually differentiated. Falls back to the entity's original shiny type if
+    /// no Square-capable encounter can be found, so this can never turn a legalizable entity into a failure.
+    /// </param>
+    public static Result LegalizeAll(IEnumerable<PKM> mons, SaveFile sav, bool preferSquare = true)
     {
         int modified = 0, failed = 0, alreadyLegal = 0, invalid = 0;
         foreach (var pk in mons)
@@ -46,19 +52,41 @@ public static class BulkAutoLegalize
                 continue;
             }
 
-            if (TryLegalize(pk, sav))
+            // Ask for Square first, then retry with the entity's own shiny type. Two attempts rather than one so
+            // an encounter that can only produce a Star shiny (or a fixed-PID gift) still gets legalized instead
+            // of being counted as a failure just because the Square preference couldn't be honoured.
+            var wantSquare = preferSquare && pk.Format >= 8 && pk.IsShiny && pk.ShinyXor != 0;
+            if ((wantSquare && TryLegalize(pk, sav, Shiny.AlwaysSquare)) || TryLegalize(pk, sav, null))
+            {
+                // The vendored legalizer only honours AlwaysSquare on some encounter paths -- its Gen9 raid
+                // seed search does (APILegality.cs:1202), but the ordinary wild path ignores it and reproduces
+                // whatever type the source had. Make the preference stick with a guarded post-pass. Reverts
+                // cleanly for seed-correlated encounters where rewriting the PID would break the match, leaving
+                // the legalized Star result intact rather than failing the whole entity.
+                if (wantSquare && pk is { IsShiny: true, ShinyXor: not 0 })
+                    BulkQoLEditor.TryApplyGuarded(pk, static p => p.SetShiny(Shiny.AlwaysSquare));
                 modified++;
+            }
             else
+            {
                 failed++;
+            }
         }
         return new Result(modified, failed, alreadyLegal, invalid);
     }
 
-    private static bool TryLegalize(PKM pk, SaveFile sav)
+    /// <param name="forceShiny">
+    /// Overrides the shiny type the <see cref="RegenTemplate"/> would otherwise inherit from the entity
+    /// (<c>RegenSet</c>'s constructor maps an existing Star shiny to <see cref="Shiny.AlwaysStar"/>, which would
+    /// keep reproducing Star). Null leaves the inherited value alone.
+    /// </param>
+    private static bool TryLegalize(PKM pk, SaveFile sav, Shiny? forceShiny)
     {
         try
         {
             var regen = new RegenTemplate(pk);
+            if (forceShiny is { } shiny)
+                regen.Regen.Extra.ShinyType = shiny;
             var blank = EntityBlank.GetBlank(sav);
             // Timeout-wrapped: some entities (e.g. a very old/unusual origin with few or no matching legal
             // encounters) can make the legalizer's internal search run far longer than expected, or effectively

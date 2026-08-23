@@ -463,7 +463,7 @@ public partial class SAV_BulkQoL : Form
         {
             // Run this last: it should legalize whatever the prior edits left behind, not get immediately
             // undone by them (e.g. a ball/met-location change applied to an entity it just legalized).
-            var result = BulkAutoLegalize.LegalizeAll(eligible.Select(s => s.Entity), sav);
+            var result = BulkAutoLegalize.LegalizeAll(eligible.Select(s => s.Entity), sav, plan.PreferSquare);
             lines.Add($"Auto-enforce legality: {result.Modified} regenerated, {result.Failed} could not be legalized, {result.AlreadyLegal} already legal, {result.SkippedInvalid} skipped (empty)");
         }
 
