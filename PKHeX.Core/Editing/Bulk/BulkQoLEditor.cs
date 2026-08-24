@@ -474,6 +474,21 @@ public static class BulkQoLEditor
         return new BulkEditResult(modified, skippedIllegal, skippedInvalid);
     }
 
+    private static HashSet<uint>? BuildTakenPidSet(SaveFile? sav)
+    {
+        if (sav is null)
+            return null;
+        var slots = new List<SlotCache>();
+        SlotInfoLoader.AddFromSaveFile(sav, slots);
+        var taken = new HashSet<uint>(slots.Count);
+        foreach (var slot in slots)
+        {
+            if (slot.Entity.Species != 0)
+                taken.Add(slot.Entity.PID);
+        }
+        return taken;
+    }
+
     private static void FixHandlingTrainerMemory(PKM pk)
     {
         // PK9 has its own canonical routine that clears more than the four memory fields -- for an untraded
@@ -541,8 +556,16 @@ public static class BulkQoLEditor
     /// sync for those entities. Entities with nothing applicable (a Gen1/2 entity with no PID and no Tracker)
     /// are reported as skipped rather than silently counted as "fixed".
     /// </remarks>
-    public static BulkEditResult RegeneratePIDTrackerAndECForAll(IEnumerable<PKM> mons)
+    /// <param name="sav">
+    /// Optional. When supplied, every PID already present in the save is treated as taken and a reroll that
+    /// lands on one is retried. This matters far more than the raw 32-bit PID space suggests: forcing a Square
+    /// shiny pins ShinyXor to 0, which collapses the candidate space to roughly 65,536 values, so regenerating
+    /// a few dozen shiny entities makes a birthday collision genuinely likely -- the fix would then create
+    /// brand-new duplicates while removing old ones.
+    /// </param>
+    public static BulkEditResult RegeneratePIDTrackerAndECForAll(IEnumerable<PKM> mons, SaveFile? sav = null)
     {
+        var taken = BuildTakenPidSet(sav);
         int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNothingToDo = 0, alreadyIllegal = 0;
         foreach (var pk in mons)
         {
@@ -578,12 +601,35 @@ public static class BulkQoLEditor
                 continue;
             }
 
-            if (TryApplyGuarded(pk, RegenerateIdentity))
+            taken?.Remove(pk.PID); // its own current value must not block it
+            if (TryRegenerateUnique(pk, taken))
+            {
+                taken?.Add(pk.PID);
                 modified++;
+            }
             else
+            {
+                taken?.Add(pk.PID);
                 skippedIllegal++;
+            }
         }
         return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNothingToDo, alreadyIllegal);
+
+        // Reroll until the new PID is not already in use elsewhere. Keeps the last attempt even if every try
+        // collided -- an unlikely-but-colliding identity is still strictly better than reverting to the
+        // identical one we were asked to break apart.
+        static bool TryRegenerateUnique(PKM pk, HashSet<uint>? taken)
+        {
+            const int attempts = 8;
+            for (int i = 0; i < attempts; i++)
+            {
+                if (!TryApplyGuarded(pk, RegenerateIdentity))
+                    return false; // a legality failure will not improve with more rerolls
+                if (taken is null || !taken.Contains(pk.PID))
+                    return true;
+            }
+            return true;
+        }
 
         static void RegenerateIdentity(PKM pk)
         {

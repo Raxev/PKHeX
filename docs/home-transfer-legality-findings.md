@@ -408,3 +408,28 @@ only reports the finding when that copy stays legal. This removes a 120-entity f
 
 Also added: `AlignSizeToScaleForAll` now fixes the Jumbo/Mini size marks as a SEPARATE guarded step from the
 alignment itself, so a gift entity that cannot be aligned can still have its mark corrected.
+
+
+---
+
+## Addendum 5 (2026-08-24): the Square-shiny preference was creating new PID collisions
+
+A clone report showed a NEW pair that had not existed before running the fix:
+
+```
+Shares a raw PID: Dedenne (Box 8-09)  <->  Pyroar (Box 14-05)    [both shiny]
+```
+
+Cause: `Shiny.AlwaysSquare` pins `ShinyXor == 0`, which collapses the PID candidate space from 2^32 to
+roughly 65,536. By the birthday bound a collision becomes likely after only a few hundred regenerations, and
+the reroll path had no uniqueness check at all -- so the de-cloner was removing old duplicates while quietly
+manufacturing new ones among shiny entities.
+
+`RegeneratePIDTrackerAndECForAll` now takes an optional `SaveFile`, seeds a taken-PID set from every entity in
+the save, and retries a reroll that lands on a value already in use. Verified by filling 60 slots with Square
+shinies (6 distinct PIDs) and de-cloning: 60 distinct PIDs afterwards, all legal, all still Square, zero
+findings.
+
+Also: Mystery Gift copies are now excluded from the fix list entirely rather than being attempted and reverted
+on every run. They were inflating the duplicate count with entities that provably cannot be separated, and
+churning their Encryption Constant each pass without ever helping.

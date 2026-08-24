@@ -204,7 +204,13 @@ public partial class SAV_BulkQoL : Form
         // DistinctBy: a Pokémon involved in 3+ mutually-identical copies produces multiple findings all pointing
         // back to the same first-seen original, but each finding's *other* side is still a distinct duplicate --
         // this collects every one of those in a single pass rather than fixing only one per round.
-        var distinctFixable = fixable.DistinctBy(s => s.Entity).ToList();
+        // Drop Mystery Gift copies: the card pins their identity, so every attempt reverts or lands back on the
+        // same constrained PID. Including them only churned their EC on every run while never separating them,
+        // and inflated the "N duplicates" count with entities that provably cannot be fixed.
+        var distinctFixable = fixable.DistinctBy(s => s.Entity)
+            .Where(s => !HomeRiskAnalyzer.IsGiftOrigin(s.Entity))
+            .ToList();
+        var giftClones = fixable.DistinctBy(s => s.Entity).Count() - distinctFixable.Count;
 
         var gap = Environment.NewLine + Environment.NewLine;
         var body = string.Join(gap, lines);
@@ -212,6 +218,12 @@ public partial class SAV_BulkQoL : Form
             body += gap + giftNotice;
         if (distinctFixable.Count != 0)
         {
+            if (giftClones > 0)
+            {
+                body += gap + $"{giftClones} duplicate(s) are Mystery Gift copies and are excluded from the fix "
+                     + "entirely -- the card pins their identity, so no reroll or regeneration can separate them. "
+                     + "Delete the extras manually instead.";
+            }
             body += gap + "Fixing regenerates the PID/HOME Tracker/Encryption Constant of the "
                  + $"{distinctFixable.Count} newly-detected duplicate(s); the first-seen original in each group "
                  + "is left untouched. Species/gender/nature/form/shininess are preserved exactly, and any "
@@ -235,7 +247,7 @@ public partial class SAV_BulkQoL : Form
         int fixedCount = 0, wasIllegal = 0, notApplicable = 0;
         foreach (var slot in distinctFixable)
         {
-            var one = BulkQoLEditor.RegeneratePIDTrackerAndECForAll([slot.Entity]);
+            var one = BulkQoLEditor.RegeneratePIDTrackerAndECForAll([slot.Entity], SAV);
             if (one.Modified == 1) fixedCount++;
             else if (one.AlreadyIllegal == 1) wasIllegal++;
             else if (one.AlreadyLegal == 1) notApplicable++;
