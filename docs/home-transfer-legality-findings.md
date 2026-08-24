@@ -530,3 +530,37 @@ That matters practically: entities missing an OT memory are overwhelmingly the t
 "Skip HOME-registered" filter excludes, so a blanket filter would have made this fix reach almost none of
 them. The OT-memory step runs against a scope with that one filter disabled. Verified: a tracked entity is
 fixed and its Tracker survives byte-identical.
+
+
+---
+
+## Addendum 9 (2026-08-24): the "generated, not played" Fishy warnings are fixable
+
+Four Fishy warnings share a theme -- the data looks produced by a tool rather than by play -- and each has a
+precise trigger, so each gets a targeted fix rather than a blanket rewrite:
+
+| Warning | Trigger | Fix |
+|---|---|---|
+| `Effort2Remaining` | EV total is exactly 508 (`EffortValueVerifier.cs:52`) | spend the spare 2 to reach 510 |
+| `EffortEXPIncreased` | levelled past the encounter level with 0 EVs (`:50`) | give a small nonzero amount |
+| `LevelEXPThreshold` | EXP sits exactly on a level boundary (`LevelVerifier.cs:56`) | nudge +1, staying in the same level bracket |
+| `NickMatchLanguageFlag` | nickname flag set while nickname == species name (`NicknameVerifier.cs:150`) | clear via `SetDefaultNickname` |
+
+`BulkQoLEditor.FixFishyWarningsForAll` keeps each edit only if the entity stays legal **and** the specific
+warning it targeted is actually gone. `TryApplyGuarded` alone proves legality, which is not the same thing --
+an edit can leave the entity legal while failing to clear the finding it was made for.
+
+**Exempt from the HOME-registered filter**, for the same reason as the OT-memory fix: EVs, EXP and nickname
+are not on HOME's documented immutable list, so changing them cannot invalidate a Tracker. This matters at
+scale here -- 793 of the reported entities are HOME-registered, and a blanket skip would have made the fix
+reach almost none of them.
+
+Verified: each warning cleared in isolation with the entity still legal and its level unchanged, and the whole
+operation is idempotent (a second pass is byte-identical).
+
+### Not auto-fixed, and why
+
+- **`EncStaticPIDShiny`** -- clearing it requires changing the PID, which IS immutable to HOME. On a
+  HOME-registered entity that trades a cosmetic warning for a broken Tracker. Left alone deliberately.
+- **`PIDZero` on Magearna** -- filenames end `00000000`, i.e. PID and EC both zero. This is the same mandated
+  pre-HOME-3.0.0 gift state documented in Addendum 7, not a defect.

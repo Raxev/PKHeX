@@ -57,6 +57,7 @@ namespace PKHeX.WinForms
             CHK_FixMoves = new System.Windows.Forms.CheckBox();
             CHK_FixTrashMemory = new System.Windows.Forms.CheckBox();
             CHK_FixOTMemory = new System.Windows.Forms.CheckBox();
+            CHK_FixFishy = new System.Windows.Forms.CheckBox();
             CHK_RegenTrackerEC = new System.Windows.Forms.CheckBox();
             CHK_AutoLegalize = new System.Windows.Forms.CheckBox();
             L_LegalNotice = new System.Windows.Forms.Label();
@@ -360,10 +361,20 @@ namespace PKHeX.WinForms
             CHK_FixOTMemory.Text = "Fix missing OT memory (safe on HOME-registered)";
             CHK_FixOTMemory.UseVisualStyleBackColor = true;
             //
+            // CHK_FixFishy
+            //
+            CHK_FixFishy.AutoSize = true;
+            CHK_FixFishy.Location = new System.Drawing.Point(14, 467);
+            CHK_FixFishy.Name = "CHK_FixFishy";
+            CHK_FixFishy.Size = new System.Drawing.Size(340, 19);
+            CHK_FixFishy.TabIndex = 25;
+            CHK_FixFishy.Text = "Fix \"Fishy\" warnings (EVs / EXP / nickname flag)";
+            CHK_FixFishy.UseVisualStyleBackColor = true;
+            //
             // CHK_RegenTrackerEC
             //
             CHK_RegenTrackerEC.AutoSize = true;
-            CHK_RegenTrackerEC.Location = new System.Drawing.Point(14, 467);
+            CHK_RegenTrackerEC.Location = new System.Drawing.Point(14, 492);
             CHK_RegenTrackerEC.Name = "CHK_RegenTrackerEC";
             CHK_RegenTrackerEC.Size = new System.Drawing.Size(340, 19);
             CHK_RegenTrackerEC.TabIndex = 24;
@@ -373,7 +384,7 @@ namespace PKHeX.WinForms
             // CHK_AutoLegalize
             //
             CHK_AutoLegalize.AutoSize = true;
-            CHK_AutoLegalize.Location = new System.Drawing.Point(14, 492);
+            CHK_AutoLegalize.Location = new System.Drawing.Point(14, 517);
             CHK_AutoLegalize.Name = "CHK_AutoLegalize";
             CHK_AutoLegalize.Size = new System.Drawing.Size(280, 19);
             CHK_AutoLegalize.TabIndex = 25;
@@ -382,7 +393,7 @@ namespace PKHeX.WinForms
             //
             // L_LegalNotice
             //
-            L_LegalNotice.Location = new System.Drawing.Point(12, 517);
+            L_LegalNotice.Location = new System.Drawing.Point(12, 542);
             L_LegalNotice.Name = "L_LegalNotice";
             L_LegalNotice.Size = new System.Drawing.Size(360, 60);
             L_LegalNotice.TabIndex = 26;
@@ -390,7 +401,7 @@ namespace PKHeX.WinForms
             //
             // PB_Progress
             //
-            PB_Progress.Location = new System.Drawing.Point(12, 582);
+            PB_Progress.Location = new System.Drawing.Point(12, 607);
             PB_Progress.Name = "PB_Progress";
             PB_Progress.Size = new System.Drawing.Size(268, 20);
             PB_Progress.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
@@ -399,7 +410,7 @@ namespace PKHeX.WinForms
             //
             // B_Cancel
             //
-            B_Cancel.Location = new System.Drawing.Point(286, 580);
+            B_Cancel.Location = new System.Drawing.Point(286, 605);
             B_Cancel.Name = "B_Cancel";
             B_Cancel.Size = new System.Drawing.Size(74, 24);
             B_Cancel.TabIndex = 30;
@@ -410,7 +421,7 @@ namespace PKHeX.WinForms
             //
             // B_CheckClones
             //
-            B_CheckClones.Location = new System.Drawing.Point(12, 612);
+            B_CheckClones.Location = new System.Drawing.Point(12, 637);
             B_CheckClones.Name = "B_CheckClones";
             B_CheckClones.Size = new System.Drawing.Size(150, 27);
             B_CheckClones.TabIndex = 31;
@@ -420,7 +431,7 @@ namespace PKHeX.WinForms
             //
             // B_HomeCheck
             //
-            B_HomeCheck.Location = new System.Drawing.Point(168, 612);
+            B_HomeCheck.Location = new System.Drawing.Point(168, 637);
             B_HomeCheck.Name = "B_HomeCheck";
             B_HomeCheck.Size = new System.Drawing.Size(192, 27);
             B_HomeCheck.TabIndex = 34;
@@ -430,7 +441,7 @@ namespace PKHeX.WinForms
             //
             // B_Run
             //
-            B_Run.Location = new System.Drawing.Point(178, 644);
+            B_Run.Location = new System.Drawing.Point(178, 669);
             B_Run.Name = "B_Run";
             B_Run.Size = new System.Drawing.Size(88, 27);
             B_Run.TabIndex = 32;
@@ -440,7 +451,7 @@ namespace PKHeX.WinForms
             //
             // B_Close
             //
-            B_Close.Location = new System.Drawing.Point(272, 644);
+            B_Close.Location = new System.Drawing.Point(272, 669);
             B_Close.Name = "B_Close";
             B_Close.Size = new System.Drawing.Size(88, 27);
             B_Close.TabIndex = 33;
@@ -451,7 +462,7 @@ namespace PKHeX.WinForms
             // SAV_BulkQoL
             //
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
-            ClientSize = new System.Drawing.Size(384, 684);
+            ClientSize = new System.Drawing.Size(384, 709);
             Controls.Add(L_Scope);
             Controls.Add(RB_Boxes);
             Controls.Add(RB_Party);
@@ -481,6 +492,7 @@ namespace PKHeX.WinForms
             Controls.Add(CHK_FixMoves);
             Controls.Add(CHK_FixTrashMemory);
             Controls.Add(CHK_FixOTMemory);
+            Controls.Add(CHK_FixFishy);
             Controls.Add(CHK_RegenTrackerEC);
             Controls.Add(CHK_AutoLegalize);
             Controls.Add(L_LegalNotice);
@@ -532,6 +544,7 @@ namespace PKHeX.WinForms
         private System.Windows.Forms.CheckBox CHK_FixMoves;
         private System.Windows.Forms.CheckBox CHK_FixTrashMemory;
         private System.Windows.Forms.CheckBox CHK_FixOTMemory;
+        private System.Windows.Forms.CheckBox CHK_FixFishy;
         private System.Windows.Forms.CheckBox CHK_RegenTrackerEC;
         private System.Windows.Forms.CheckBox CHK_AutoLegalize;
         private System.Windows.Forms.Label L_LegalNotice;

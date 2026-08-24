@@ -72,6 +72,7 @@ public partial class SAV_BulkQoL : Form
         bool FixMoves,
         bool FixTrashMemory,
         bool FixOTMemory,
+        bool FixFishy,
         bool RegenTrackerEC,
         bool AutoLegalize);
 
@@ -93,6 +94,7 @@ public partial class SAV_BulkQoL : Form
         CHK_FixMoves.Checked,
         CHK_FixTrashMemory.Checked,
         CHK_FixOTMemory.Checked,
+        CHK_FixFishy.Checked,
         CHK_RegenTrackerEC.Checked,
         CHK_AutoLegalize.Checked);
 
@@ -508,7 +510,7 @@ public partial class SAV_BulkQoL : Form
 
     private static bool HasAnyEditSelected(Plan plan) =>
         plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.MaxSize || plan.NaturePreset
-        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.RegenTrackerEC
+        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.FixFishy || plan.RegenTrackerEC
         || plan.AutoLegalize;
 
     /// <summary>
@@ -651,6 +653,16 @@ public partial class SAV_BulkQoL : Form
             var scope = memoryScope ?? eligible;
             var result = BulkQoLEditor.FixOriginalTrainerMemoryForAll(scope.Select(s => s.Entity));
             lines.Add($"Fix missing OT memory: {result.Modified} filled in, {result.SkippedIllegal} no valid memory found, {result.AlreadyLegal} skipped (not missing one, or non-Gen8), {result.SkippedInvalid} skipped (empty)");
+            foreach (var slot in scope)
+                slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.FixFishy)
+        {
+            // Same HOME exemption as the OT-memory fix: EVs, EXP and nickname are not immutable to HOME.
+            var scope = memoryScope ?? eligible;
+            var result = BulkQoLEditor.FixFishyWarningsForAll(scope.Select(s => s.Entity));
+            lines.Add($"Fix Fishy warnings: {result.Modified} cleaned up, {result.SkippedIllegal} could not be cleared, {result.AlreadyLegal} skipped (no such warning), {result.SkippedInvalid} skipped (empty)");
             foreach (var slot in scope)
                 slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
         }

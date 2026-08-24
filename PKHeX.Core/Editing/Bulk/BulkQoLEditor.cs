@@ -490,6 +490,157 @@ public static class BulkQoLEditor
     }
 
     /// <summary>
+    /// Clears the "this looks generated rather than played" warnings that <see cref="LegalityAnalysis"/> raises
+    /// at <see cref="Severity.Fishy"/>, which never turn the verdict red and so are easy to miss entirely.
+    /// </summary>
+    /// <remarks>
+    /// Each warning has a precise trigger, so each gets a targeted, individually guarded edit rather than a
+    /// blanket rewrite:
+    /// <list type="bullet">
+    /// <item><c>Effort2Remaining</c> -- the EV total is exactly 508 (<see cref="EffortValues.MaxEffective"/>),
+    /// the "two 252s" shape a tool produces. Spend the remaining 2 to reach 510.</item>
+    /// <item><c>EffortEXPIncreased</c> -- the entity has levelled beyond its encounter level with zero EVs,
+    /// which normal play cannot produce. Give it a small amount.</item>
+    /// <item><c>LevelEXPThreshold</c> -- EXP sits exactly on a level boundary. Nudge it just above, staying
+    /// inside the same level bracket so the level itself never changes.</item>
+    /// <item><c>NickMatchLanguageFlag</c> -- the nickname flag is set while the nickname equals the species
+    /// name. Clear the flag via <see cref="CommonEdits.SetDefaultNickname"/>.</item>
+    /// </list>
+    /// Every edit is kept only if the entity stays legal <b>and</b> the specific warning it targeted is
+    /// actually gone -- the ordinary guard proves legality, which is not the same thing.
+    /// <para/>
+    /// EVs, EXP and nickname are <b>not</b> on HOME's documented immutable list, so this is safe to apply to a
+    /// HOME-registered entity. See the caller for how that exemption is applied.
+    /// </remarks>
+    public static BulkEditResult FixFishyWarningsForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNotApplicable = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+
+            var codes = GetFindingCodes(pk);
+            var targeted = false;
+            var fixedAny = false;
+
+            if (codes.Contains(LegalityCheckResultCode.Effort2Remaining))
+            {
+                targeted = true;
+                fixedAny |= TryClearFinding(pk, LegalityCheckResultCode.Effort2Remaining, SpendRemainingEVs);
+            }
+            if (codes.Contains(LegalityCheckResultCode.EffortEXPIncreased))
+            {
+                targeted = true;
+                fixedAny |= TryClearFinding(pk, LegalityCheckResultCode.EffortEXPIncreased, GiveStarterEVs);
+            }
+            if (codes.Contains(LegalityCheckResultCode.LevelEXPThreshold))
+            {
+                targeted = true;
+                fixedAny |= TryClearFinding(pk, LegalityCheckResultCode.LevelEXPThreshold, NudgeExperience);
+            }
+            if (codes.Contains(LegalityCheckResultCode.NickMatchLanguageFlag))
+            {
+                targeted = true;
+                fixedAny |= TryClearFinding(pk, LegalityCheckResultCode.NickMatchLanguageFlag, static p => p.SetDefaultNickname());
+            }
+
+            if (!targeted)
+                skippedNotApplicable++;
+            else if (fixedAny)
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
+    }
+
+    private static HashSet<LegalityCheckResultCode> GetFindingCodes(PKM pk)
+    {
+        var set = new HashSet<LegalityCheckResultCode>();
+        try
+        {
+            foreach (var chk in new LegalityAnalysis(pk).Results)
+                set.Add(chk.Result);
+        }
+        catch (Exception)
+        {
+            // Corrupted data; leave the set empty so the entity is reported as "nothing applicable".
+        }
+        return set;
+    }
+
+    /// <summary>
+    /// Applies <paramref name="mutate"/> and keeps it only if the entity is still legal AND
+    /// <paramref name="code"/> is no longer reported. Reverts otherwise.
+    /// </summary>
+    private static bool TryClearFinding(PKM pk, LegalityCheckResultCode code, Action<PKM> mutate)
+    {
+        Span<byte> backup = stackalloc byte[pk.Data.Length];
+        pk.Data.CopyTo(backup);
+        try
+        {
+            mutate(pk);
+            pk.RefreshChecksum();
+            if (new LegalityAnalysis(pk).Valid && !GetFindingCodes(pk).Contains(code))
+                return true;
+        }
+        catch (Exception)
+        {
+            // Fall through and revert, same as an ordinary "this didn't work" result.
+        }
+        backup.CopyTo(pk.Data);
+        pk.RefreshChecksum();
+        return false;
+    }
+
+    private static void SpendRemainingEVs(PKM pk)
+    {
+        var evs = new int[6];
+        pk.GetEVs(evs);
+        var spare = EffortValues.Max510 - Sum(evs);
+        for (int i = 0; i < evs.Length && spare > 0; i++)
+        {
+            var room = Math.Min(spare, EffortValues.Max252 - evs[i]);
+            evs[i] += room;
+            spare -= room;
+        }
+        pk.SetEVs(evs);
+    }
+
+    private static void GiveStarterEVs(PKM pk)
+    {
+        var evs = new int[6];
+        pk.GetEVs(evs);
+        evs[0] = Math.Min(EffortValues.Max252, evs[0] + 4); // a few HP EVs is the least invasive nonzero value
+        pk.SetEVs(evs);
+    }
+
+    private static void NudgeExperience(PKM pk)
+    {
+        // Move off the exact level boundary without crossing into the next level.
+        var growth = pk.PersonalInfo.EXPGrowth;
+        var level = pk.CurrentLevel;
+        if (level >= Experience.MaxLevel)
+            return;
+        var here = Experience.GetEXP(level, growth);
+        var next = Experience.GetEXP((byte)(level + 1), growth);
+        if (next > here + 1)
+            pk.EXP = here + 1;
+    }
+
+    private static int Sum(ReadOnlySpan<int> values)
+    {
+        int total = 0;
+        foreach (var v in values)
+            total += v;
+        return total;
+    }
+
+    /// <summary>
     /// Fills in a missing Original Trainer memory on entities the legality checker flags with
     /// <see cref="LegalityCheckResultCode.MemoryMissingOT"/>, by searching the memory values the entity's game
     /// can actually produce and keeping the first that clears the finding while leaving the entity legal.
