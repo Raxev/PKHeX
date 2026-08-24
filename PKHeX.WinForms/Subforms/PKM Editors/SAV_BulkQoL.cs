@@ -669,9 +669,17 @@ public partial class SAV_BulkQoL : Form
     private List<SlotCache> GetScopedSlots()
     {
         var data = new List<SlotCache>();
-        if (RB_Party.Checked || RB_Both.Checked)
+        // "Both" means the whole save, not just boxes + party. AddFromSaveFile also pulls the misc slots
+        // (Surprise Trade, Daycare, Fused), which the HOME pre-check already scans -- without this, findings
+        // could be reported in slots no bulk edit was able to reach, and re-running never cleared them.
+        if (RB_Both.Checked)
+        {
+            SlotInfoLoader.AddFromSaveFile(SAV, data);
+            return data;
+        }
+        if (RB_Party.Checked)
             SlotInfoLoader.AddPartyData(SAV, data);
-        if (RB_Boxes.Checked || RB_Both.Checked)
+        if (RB_Boxes.Checked)
             SlotInfoLoader.AddBoxData(SAV, data);
         return data;
     }

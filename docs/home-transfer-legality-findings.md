@@ -433,3 +433,42 @@ findings.
 Also: Mystery Gift copies are now excluded from the fix list entirely rather than being attempted and reverted
 on every run. They were inflating the duplicate count with entities that provably cannot be separated, and
 churning their Encryption Constant each pass without ever helping.
+
+
+---
+
+## Addendum 6 (2026-08-24): results on the real save, and what is genuinely left
+
+Measured across successive runs of the pre-check against the user's Violet save:
+
+| Finding | Before | After |
+|---|---|---|
+| HeightScalar != Scale | 157 | 1 |
+| Max Scale without Jumbo Mark | 2 | 0 |
+| Min Scale without Mini Mark | 1 | 0 |
+| PID collisions created by the fix | 1 (Dedenne/Pyroar) | 0 |
+
+Most of the 157 were a false positive (Addendum 4). The genuine ones aligned, the size marks were corrected,
+and the self-inflicted collision was eliminated (Addendum 5).
+
+**Last gap closed:** `HomeTransferPreCheck.Scan` uses `SlotInfoLoader.AddFromSaveFile`, which includes the misc
+slots (Surprise Trade, Daycare, Fused), but the dialog's scope only built Boxes + Party. Findings in those
+slots were therefore reported but unreachable by any bulk edit, and re-running never cleared them. The "All"
+scope now uses `AddFromSaveFile` so it covers the whole save.
+
+### Not fixable by any edit -- resolution is deletion
+
+- **Mystery Gift duplicates** (Miraidon x17, Koraidon x17, Enamorus, Eternatus, Zacian, Zamazenta, and the
+  four Treasures of Ruin). The card pins the identity; see Addendum 3. Now excluded from the fix entirely.
+- **Gen9 raid-origin duplicates** (Charizard, Cinderace, Greninja, Deoxys, and the Box 18/19 batch sharing
+  `76D1FFDC` / `CEB8F7B2` / `49F8A7F6`). PID, EC and IVs derive from one seed; the legalizer could not find a
+  different valid seed for them, so `ForceNewIdentity` reports Failed and leaves them byte-identical.
+
+### Deliberately not "fixed"
+
+- **83 `LevelEXPThreshold`** -- EXP sitting exactly on a level boundary. Fishy, not Invalid. Changing it would
+  fabricate battle history rather than correct an error.
+- **19 `MemoryMissingHT`**, **4 `IVAllEqual_0`**, **4 `EffortEXPIncreased`**, **2 `NickMatchLanguageFlag`** --
+  each needs a per-entity judgement call, and most overlap the HOME-registered set that bulk edits correctly
+  refuse to touch.
+- **320 HOME-registered** -- working as designed. This is a protection, not a defect.

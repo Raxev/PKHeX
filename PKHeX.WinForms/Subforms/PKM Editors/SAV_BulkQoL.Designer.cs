@@ -102,9 +102,9 @@ namespace PKHeX.WinForms
             RB_Both.AutoSize = true;
             RB_Both.Location = new System.Drawing.Point(187, 13);
             RB_Both.Name = "RB_Both";
-            RB_Both.Size = new System.Drawing.Size(50, 19);
+            RB_Both.Size = new System.Drawing.Size(46, 19);
             RB_Both.TabIndex = 3;
-            RB_Both.Text = "Both";
+            RB_Both.Text = "All";
             RB_Both.UseVisualStyleBackColor = true;
             //
             // L_Filter
