@@ -124,6 +124,33 @@ public static class HomeTransferPreCheck
     /// category itself answers "why didn't my fix apply to these?" without the reader having to cross-reference
     /// two separate groups.
     /// </summary>
+    /// <summary>
+    /// True when the encounter itself REQUIRES HeightScalar to differ from Scale, so reporting it as fixable
+    /// would be a false positive.
+    /// </summary>
+    /// <remarks>
+    /// Mystery Gift cards pin the height and weight scalars exactly (<c>WC9.IsMatchSize</c> compares against
+    /// the card's <c>HeightValue</c>/<c>WeightValue</c>) while separately pinning Scale, so a card with
+    /// height 0 and scale 128 mandates the mismatch. Aligning such an entity breaks the card match, which is
+    /// why the guarded align silently reverted on them. Detected by actually attempting the alignment on a
+    /// throwaway copy rather than by guessing at encounter types.
+    /// </remarks>
+    private static bool IsSizeMismatchMandated(PK9 pk)
+    {
+        try
+        {
+            var probe = (PK9)pk.Clone();
+            probe.HeightScalar = probe.Scale;
+            probe.WeightScalar = probe.Scale;
+            probe.RefreshChecksum();
+            return !new LegalityAnalysis(probe).Valid;
+        }
+        catch (Exception)
+        {
+            return true; // can't tell -> don't claim it's fixable
+        }
+    }
+
     private static string Scope(PKM pk) =>
         pk is IHomeTrack { Tracker: not 0 } ? " [HOME-registered, bulk edits skip these]" : " [fixable]";
 
@@ -166,7 +193,7 @@ public static class HomeTransferPreCheck
                 "as an outright legality error. Bulk edits deliberately skip HOME-registered Pokémon, so this " +
                 "one needs manual attention."));
         }
-        else if (pk.HeightScalar != pk.Scale)
+        else if (pk.HeightScalar != pk.Scale && !IsSizeMismatchMandated(pk))
         {
             findings.Add(new Finding(slot, Risk.Warning, "HeightScalar != Scale" + Scope(pk),
                 $"HeightScalar ({pk.HeightScalar}) does not match Scale ({pk.Scale}). Harmless right now, but " +

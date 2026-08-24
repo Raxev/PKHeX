@@ -362,13 +362,22 @@ public static class BulkQoLEditor
 
             var s3 = (IScaledSize3)pk;
             var s2 = (IScaledSize)pk;
-            if (s2.HeightScalar == s3.Scale && s2.WeightScalar == s3.Scale)
+            var needsAlign = s2.HeightScalar != s3.Scale || s2.WeightScalar != s3.Scale;
+            var needsMark = pk is IRibbonSetMark9 m
+                            && ((s3.Scale == byte.MaxValue && !m.RibbonMarkJumbo)
+                                || (s3.Scale == byte.MinValue && !m.RibbonMarkMini));
+            if (!needsAlign && !needsMark)
             {
                 skippedNotApplicable++;
                 continue;
             }
 
-            if (TryApplyGuarded(pk, Align))
+            // Two independent guarded steps. A Mystery Gift pins HeightScalar/WeightScalar to the card's own
+            // values while separately pinning Scale, so aligning is illegal for those -- but the size MARK may
+            // still be fixable. Keeping the steps separate means one failing never blocks the other.
+            var aligned = TryApplyGuarded(pk, Align);
+            var marked = TryApplyGuarded(pk, FixSizeMark);
+            if (aligned || marked)
                 modified++;
             else
                 skippedIllegal++;
@@ -381,6 +390,19 @@ public static class BulkQoLEditor
             var size = (IScaledSize)pk;
             size.HeightScalar = scale;
             size.WeightScalar = scale;
+        }
+
+        // Gen9 awards Jumbo/Mini automatically at the size extremes, and RibbonVerifierMark9 only checks the
+        // mark-without-scale direction -- so scale-without-mark is never flagged despite being unreachable
+        // in-game.
+        static void FixSizeMark(PKM pk)
+        {
+            if (pk is not IRibbonSetMark9 marks || pk is not IScaledSize3 s3)
+                return;
+            if (s3.Scale == byte.MaxValue && !marks.RibbonMarkJumbo)
+                marks.RibbonMarkJumbo = true;
+            else if (s3.Scale == byte.MinValue && !marks.RibbonMarkMini)
+                marks.RibbonMarkMini = true;
         }
     }
 

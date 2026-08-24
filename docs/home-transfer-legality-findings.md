@@ -389,3 +389,22 @@ clone population being overwhelmingly **gift and raid-event origin**, where dupl
 data was produced and HOME's own one-redemption-per-account model makes duplicates unacceptable regardless of
 PID. The genuinely fixable categories (size/scale alignment, HT memory, trash bytes, tracker forging, Square
 shiny) were all found and fixed along the way and are listed above.
+
+
+---
+
+## Addendum 4 (2026-08-24): the 120 "HeightScalar != Scale" were a false positive
+
+`WC9.IsMatchSize` (`PKHeX.Core/MysteryGifts/WC9.cs:722-747`) compares an entity's height and weight scalars
+against the CARD's own `HeightValue`/`WeightValue`, while separately pinning `Scale`. The Miraidon/Koraidon
+card (CardID 1540) carries height/weight 0 and `Scale = 128`, so **the mismatch is mandated by the gift**.
+Aligning those entities breaks the card match, which is exactly why the guarded align reverted on all of them.
+
+`Encounter9RNG.IsHeightMatchSV` defers to `HomeQuirks.IsTouchedScaleCopiedOrUntouched`, accepting either the
+untouched card value or the HOME-copied value, so these entities are fine before and after a HOME visit.
+
+The pre-check now proves fixability instead of assuming it: it attempts the alignment on a throwaway copy and
+only reports the finding when that copy stays legal. This removes a 120-entity false positive.
+
+Also added: `AlignSizeToScaleForAll` now fixes the Jumbo/Mini size marks as a SEPARATE guarded step from the
+alignment itself, so a gift entity that cannot be aligned can still have its mark corrected.
