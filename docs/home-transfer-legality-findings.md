@@ -564,3 +564,28 @@ operation is idempotent (a second pass is byte-identical).
   HOME-registered entity that trades a cosmetic warning for a broken Tracker. Left alone deliberately.
 - **`PIDZero` on Magearna** -- filenames end `00000000`, i.e. PID and EC both zero. This is the same mandated
   pre-HOME-3.0.0 gift state documented in Addendum 7, not a defect.
+
+
+---
+
+## Addendum 10 (2026-08-24): you cannot assign a new HOME Tracker, only clear one
+
+A Tracker is a GUID issued by HOME's servers, so there is no "assign a fresh non-colliding value" operation --
+any value not issued by HOME is a forgery it can check against its own records. `TransferVerifier.cs:174-176`
+states the intended workflow directly:
+
+> Transfer a 0-Tracker pk to HOME to get assigned a valid Tracker via the game it originated from.
+> Don't make one up.
+
+`BulkQoLEditor.ClearHomeTrackerForAll` therefore only ever writes zero, meaning "never uploaded", which makes
+HOME issue a fresh record on the next transfer. It touches nothing else -- verified that PID, Encryption
+Constant and IVs are byte-identical afterwards, which matters because all three ARE immutable to HOME and the
+existing de-cloner changes them.
+
+Self-limiting: where a Tracker is genuinely required (GO transfers, HOME gifts, cross-generation transfers per
+`HomeTrackerUtil.IsRequired`), clearing produces `TransferTrackerMissing` and the guard reverts.
+
+**What it does not do.** Clearing the local Tracker does not delete HOME's record of the original upload.
+HOME may still recognise the entity by other means, and if the original copy is still sitting in HOME a
+successful re-upload produces a *second* copy there rather than replacing the first. This removes the local
+tracker-mismatch obstacle and nothing more.

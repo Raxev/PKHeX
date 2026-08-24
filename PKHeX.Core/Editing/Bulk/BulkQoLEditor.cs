@@ -490,6 +490,49 @@ public static class BulkQoLEditor
     }
 
     /// <summary>
+    /// Clears an existing HOME Tracker to zero so HOME issues a fresh record on the next upload. Touches
+    /// nothing else -- PID, Encryption Constant, IVs and every other field are left exactly as they are.
+    /// </summary>
+    /// <remarks>
+    /// A Tracker is a GUID issued by HOME's own servers, so it can only ever be <b>cleared</b>, never invented.
+    /// <see cref="TransferVerifier"/> states this outright: "Transfer a 0-Tracker pk to HOME to get assigned a
+    /// valid Tracker via the game it originated from. Don't make one up." A fabricated value claims an ID HOME
+    /// never issued, which HOME can check against its own records; zero simply means "never uploaded".
+    /// <para/>
+    /// Self-limiting: for entities where a Tracker is genuinely required -- GO transfers, HOME gifts, and
+    /// anything that crossed generations, per <see cref="HomeTrackerUtil.IsRequired"/> -- clearing it produces
+    /// <c>TransferTrackerMissing</c> and the guard reverts, leaving those untouched.
+    /// <para/>
+    /// This does <b>not</b> guarantee HOME will accept the entity. HOME still holds a record of the original
+    /// upload and may recognise it by other means; and if the original copy is still in HOME, a successful
+    /// re-upload produces a second copy there rather than replacing the first. It removes the local
+    /// tracker-mismatch obstacle, nothing more.
+    /// </remarks>
+    public static BulkEditResult ClearHomeTrackerForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNoTracker = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+            if (pk is not IHomeTrack { Tracker: not 0 })
+            {
+                skippedNoTracker++;
+                continue;
+            }
+
+            if (TryApplyGuarded(pk, static p => ((IHomeTrack)p).Tracker = 0))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNoTracker);
+    }
+
+    /// <summary>
     /// Clears the "this looks generated rather than played" warnings that <see cref="LegalityAnalysis"/> raises
     /// at <see cref="Severity.Fishy"/>, which never turn the verdict red and so are easy to miss entirely.
     /// </summary>

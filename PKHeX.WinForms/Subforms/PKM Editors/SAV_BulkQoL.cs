@@ -73,6 +73,7 @@ public partial class SAV_BulkQoL : Form
         bool FixTrashMemory,
         bool FixOTMemory,
         bool FixFishy,
+        bool ClearTracker,
         bool RegenTrackerEC,
         bool AutoLegalize);
 
@@ -95,6 +96,7 @@ public partial class SAV_BulkQoL : Form
         CHK_FixTrashMemory.Checked,
         CHK_FixOTMemory.Checked,
         CHK_FixFishy.Checked,
+        CHK_ClearTracker.Checked,
         CHK_RegenTrackerEC.Checked,
         CHK_AutoLegalize.Checked);
 
@@ -510,7 +512,7 @@ public partial class SAV_BulkQoL : Form
 
     private static bool HasAnyEditSelected(Plan plan) =>
         plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.MaxSize || plan.NaturePreset
-        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.FixFishy || plan.RegenTrackerEC
+        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.FixFishy || plan.ClearTracker || plan.RegenTrackerEC
         || plan.AutoLegalize;
 
     /// <summary>
@@ -663,6 +665,17 @@ public partial class SAV_BulkQoL : Form
             var scope = memoryScope ?? eligible;
             var result = BulkQoLEditor.FixFishyWarningsForAll(scope.Select(s => s.Entity));
             lines.Add($"Fix Fishy warnings: {result.Modified} cleaned up, {result.SkippedIllegal} could not be cleared, {result.AlreadyLegal} skipped (no such warning), {result.SkippedInvalid} skipped (empty)");
+            foreach (var slot in scope)
+                slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.ClearTracker)
+        {
+            // Targets HOME-registered entities by definition, so it must see them: use the scope that has the
+            // "Skip HOME-registered" filter disabled, or it would have nothing to act on.
+            var scope = memoryScope ?? eligible;
+            var result = BulkQoLEditor.ClearHomeTrackerForAll(scope.Select(s => s.Entity));
+            lines.Add($"Clear HOME Tracker: {result.Modified} cleared, {result.SkippedIllegal} skipped (a Tracker is required for that encounter), {result.AlreadyLegal} skipped (no Tracker set), {result.SkippedInvalid} skipped (empty)");
             foreach (var slot in scope)
                 slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
         }
