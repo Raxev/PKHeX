@@ -353,7 +353,7 @@ namespace PKHeX.WinForms
             // CHK_FixOTMemory
             //
             CHK_FixOTMemory.AutoSize = true;
-            CHK_FixOTMemory.Location = new System.Drawing.Point(14, 392);
+            CHK_FixOTMemory.Location = new System.Drawing.Point(14, 442);
             CHK_FixOTMemory.Name = "CHK_FixOTMemory";
             CHK_FixOTMemory.Size = new System.Drawing.Size(340, 19);
             CHK_FixOTMemory.TabIndex = 24;
@@ -367,7 +367,7 @@ namespace PKHeX.WinForms
             CHK_RegenTrackerEC.Name = "CHK_RegenTrackerEC";
             CHK_RegenTrackerEC.Size = new System.Drawing.Size(340, 19);
             CHK_RegenTrackerEC.TabIndex = 24;
-            CHK_RegenTrackerEC.Text = "Regenerate PID / HOME Tracker / Encryption Constant (dodge clones)";
+            CHK_RegenTrackerEC.Text = "Regenerate PID / Tracker / EC (break clone collisions)";
             CHK_RegenTrackerEC.UseVisualStyleBackColor = true;
             //
             // CHK_AutoLegalize
