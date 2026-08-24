@@ -96,46 +96,77 @@ public static class BulkAutoLegalize
     /// </remarks>
     public static IdentityResult ForceNewIdentity(IEnumerable<PKM> mons, SaveFile sav)
     {
+        // Seed the "taken" set with every PID already in the save. Without this, regenerating a group of
+        // identical clones hands them all the SAME new PID: the legalizer is fed an identical RegenTemplate
+        // each time and, for a fixed encounter, converges on the same value. Each entity then differs from its
+        // own previous PID (so a naive per-entity check passes) while still colliding with its siblings --
+        // trading one shared PID for another and leaving the clone report unchanged.
+        var taken = new HashSet<uint>();
+        var all = new List<SlotCache>();
+        SlotInfoLoader.AddFromSaveFile(sav, all);
+        foreach (var slot in all)
+        {
+            if (slot.Entity.Species != 0)
+                taken.Add(slot.Entity.PID);
+        }
+
         int regenerated = 0, failed = 0;
         foreach (var pk in mons)
         {
-            if (TryForceNewIdentity(pk, sav))
+            taken.Remove(pk.PID); // its own current value must not block it
+            if (TryForceNewIdentity(pk, sav, taken))
+            {
+                taken.Add(pk.PID);
                 regenerated++;
+            }
             else
+            {
+                taken.Add(pk.PID);
                 failed++;
+            }
         }
         return new IdentityResult(regenerated, failed);
     }
 
-    private static bool TryForceNewIdentity(PKM pk, SaveFile sav)
+    /// <summary>How many distinct seeds to try before giving up on finding an unused identity.</summary>
+    private const int IdentityAttempts = 12;
+
+    private static bool TryForceNewIdentity(PKM pk, SaveFile sav, HashSet<uint> taken)
     {
-        try
+        var oldPid = pk.PID;
+        var oldEc = pk.EncryptionConstant;
+        for (int attempt = 0; attempt < IdentityAttempts; attempt++)
         {
-            var oldPid = pk.PID;
-            var oldEc = pk.EncryptionConstant;
-            var regen = new RegenTemplate(pk);
-            var blank = EntityBlank.GetBlank(sav);
-            var async = sav.GetLegalFromTemplateTimeout(blank, regen);
-            if (async.Status != LegalizationResult.Regenerated)
-                return false;
+            try
+            {
+                var regen = new RegenTemplate(pk);
+                var blank = EntityBlank.GetBlank(sav);
+                var async = sav.GetLegalFromTemplateTimeout(blank, regen);
+                if (async.Status != LegalizationResult.Regenerated)
+                    return false;
 
-            var converted = EntityConverter.ConvertToType(async.Created, pk.GetType(), out _);
-            if (converted is null || converted.Data.Length != pk.Data.Length)
-                return false;
-            // No point committing a rebuild that landed on the same identity -- the collision would remain.
-            if (converted.PID == oldPid && converted.EncryptionConstant == oldEc)
-                return false;
-            if (!new LegalityAnalysis(converted).Valid)
-                return false;
+                var converted = EntityConverter.ConvertToType(async.Created, pk.GetType(), out _);
+                if (converted is null || converted.Data.Length != pk.Data.Length)
+                    return false;
+                // Reject a rebuild that kept the old identity, or that landed on one already in use elsewhere
+                // in the save -- either way the collision the caller is trying to break would survive.
+                if (converted.PID == oldPid && converted.EncryptionConstant == oldEc)
+                    continue;
+                if (taken.Contains(converted.PID))
+                    continue;
+                if (!new LegalityAnalysis(converted).Valid)
+                    continue;
 
-            converted.Data.CopyTo(pk.Data);
-            pk.RefreshChecksum();
-            return true;
+                converted.Data.CopyTo(pk.Data);
+                pk.RefreshChecksum();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
-        catch (Exception)
-        {
-            return false;
-        }
+        return false;
     }
 
     /// <param name="forceShiny">
