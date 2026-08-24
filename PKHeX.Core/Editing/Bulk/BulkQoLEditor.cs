@@ -231,7 +231,11 @@ public static class BulkQoLEditor
     /// a "Mini" size mark). Entities from a pre-Gen8 format, which has no size-scalar concept at all, are
     /// skipped rather than counted as modified.
     /// </summary>
-    public static BulkEditResult SetMaxSizeForAll(IEnumerable<PKM> mons)
+    /// <param name="scaleSearchLimit">
+    /// How many values below maximum to try when the maximum itself cannot be applied legally. Each attempt
+    /// costs a full legality analysis, so this is deliberately bounded rather than scanning all 255.
+    /// </param>
+    public static BulkEditResult SetMaxSizeForAll(IEnumerable<PKM> mons, int scaleSearchLimit = 64)
     {
         int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedUnsupported = 0;
         foreach (var pk in mons)
@@ -247,39 +251,74 @@ public static class BulkQoLEditor
                 continue;
             }
 
-            if (TryApplyGuarded(pk, MaxSize))
+            // Three escalating attempts, each individually guarded, so a failure at one step still leaves the
+            // entity untouched and lets the next step try:
+            //   1. Max size with the Jumbo Mark, which the game awards automatically at that size.
+            //   2. Max size WITHOUT the mark. Required because MarkRules.IsMarkAllowedJumbo also demands
+            //      EvolutionHistory.HasVisitedGen9 and a mark-capable encounter (IsEncounterMarkLost excludes
+            //      e.g. Nincada -> Shedinja). Without this fallback, an entity that simply cannot hold the mark
+            //      would have the whole edit reverted and get no size increase at all.
+            //   3. The largest legal value below maximum, for encounters that constrain scale to a range
+            //      (EncounterOutbreak9's ScaleMin/ScaleMax, EncounterFixed9's MinScaleStrongTera floor).
+            if (TrySetSize(pk, byte.MaxValue, withJumbo: true)
+                || TrySetSize(pk, byte.MaxValue, withJumbo: false)
+                || TryGrowToLargestLegal(pk, scaleSearchLimit))
                 modified++;
             else
                 skippedIllegal++;
         }
         return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedUnsupported);
+    }
 
-        static void MaxSize(PKM pk)
+    private static bool TrySetSize(PKM pk, byte value, bool withJumbo) =>
+        TryApplyGuarded(pk, p => ApplySize(p, value, withJumbo));
+
+    private static void ApplySize(PKM pk, byte value, bool withJumbo)
+    {
+        // SV's Scale is the authoritative size byte; HeightScalar/WeightScalar only matter once HOME-tracked,
+        // at which point they must match Scale exactly -- so always set all three that apply.
+        if (pk is IScaledSize3 s3)
+            s3.Scale = value;
+        if (pk is IScaledSize s2)
         {
-            // SV's Scale is the authoritative size byte; HeightScalar/WeightScalar only matter once HOME-tracked,
-            // at which point they must match Scale exactly -- so always set all three that apply.
-            if (pk is IScaledSize3 s3)
-                s3.Scale = byte.MaxValue;
-            if (pk is IScaledSize s2)
-            {
-                s2.HeightScalar = byte.MaxValue;
-                s2.WeightScalar = byte.MaxValue;
-            }
-            // Gen9 awards the Jumbo Mark automatically at capture when Scale is maxed, so "max Scale without the
-            // mark" is a state the game itself never produces. PKHeX won't flag it -- RibbonVerifierMark9 only
-            // checks mark-without-scale, not scale-without-mark -- but it leaves an inconsistency visible to
-            // anything that cross-checks the pair. The guard reverts if this encounter can't legally hold the
-            // mark (see MarkRules.IsEncounterMarkLost, e.g. Nincada -> Shedinja), so it's safe to just try.
-            if (pk is IRibbonSetMark9 { RibbonMarkJumbo: false } mark9 && pk is IScaledSize3 { Scale: byte.MaxValue })
-                mark9.RibbonMarkJumbo = true;
-            // Resync the derived displayed height/weight (meters/kg) where the format tracks it separately;
-            // stale Absolute values aren't a legality problem here, but leaving them stale would be a visible bug.
-            if (pk is IScaledSizeValue sv)
-            {
-                sv.ResetHeight();
-                sv.ResetWeight();
-            }
+            s2.HeightScalar = value;
+            s2.WeightScalar = value;
         }
+        // Only meaningful at maximum size; RibbonVerifierMark9 checks the mark one-directionally, so
+        // scale-without-mark is never flagged despite being a state the game cannot produce.
+        if (withJumbo && value == byte.MaxValue && pk is IRibbonSetMark9 { RibbonMarkJumbo: false } mark9)
+            mark9.RibbonMarkJumbo = true;
+        // Resync the derived displayed height/weight (meters/kg) where the format tracks it separately;
+        // stale Absolute values aren't a legality problem here, but leaving them stale would be a visible bug.
+        if (pk is IScaledSizeValue sv)
+        {
+            sv.ResetHeight();
+            sv.ResetWeight();
+        }
+    }
+
+    /// <summary>
+    /// Walks down from maximum looking for the largest size this entity can legally hold. Never shrinks the
+    /// entity: the walk stops once it reaches the size it already has.
+    /// </summary>
+    private static bool TryGrowToLargestLegal(PKM pk, int limit)
+    {
+        var current = pk switch
+        {
+            IScaledSize3 s3 => s3.Scale,
+            IScaledSize s2 => s2.HeightScalar,
+            _ => byte.MaxValue,
+        };
+
+        for (int i = 1; i <= limit; i++)
+        {
+            var candidate = byte.MaxValue - i;
+            if (candidate <= current)
+                break; // anything further down would make it smaller than it already is
+            if (TrySetSize(pk, (byte)candidate, withJumbo: false))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
