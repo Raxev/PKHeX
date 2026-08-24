@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 
@@ -43,7 +44,13 @@ public sealed class RegenSet
         }
 
         modified.Add($".MetLocation={pk.MetLocation}");
-        modified.Add($".MetDate={pk.MetDate}");
+        // FIX (2026-08-24): interpolating DateOnly? directly emits a culture-formatted short date
+        // ("8/19/2026" on en-US), but the batch handler parses with DateOnly.ParseExact(val, "yyyyMMdd",
+        // InvariantCulture). The FormatException was swallowed by BatchEditingBase, so .MetLocation and
+        // .MetLevel applied while .MetDate silently did not -- leaving regenerated entities with the
+        // original's met location/level paired with the encounter's met date.
+        if (pk.MetDate is { } metDate)
+            modified.Add($".MetDate={metDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture)}");
         modified.Add($".MetLevel={pk.MetLevel}");
         if (pk is IFormArgument { FormArgument: not 0 } fa)
             modified.Add($".FormArgument={fa.FormArgument}");

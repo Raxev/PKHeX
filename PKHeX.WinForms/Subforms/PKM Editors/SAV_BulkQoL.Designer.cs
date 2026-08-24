@@ -60,6 +60,7 @@ namespace PKHeX.WinForms
             PB_Progress = new System.Windows.Forms.ProgressBar();
             B_Cancel = new System.Windows.Forms.Button();
             B_CheckClones = new System.Windows.Forms.Button();
+            B_HomeCheck = new System.Windows.Forms.Button();
             B_Run = new System.Windows.Forms.Button();
             B_Close = new System.Windows.Forms.Button();
             SuspendLayout();
@@ -382,9 +383,19 @@ namespace PKHeX.WinForms
             B_CheckClones.UseVisualStyleBackColor = true;
             B_CheckClones.Click += B_CheckClones_Click;
             //
+            // B_HomeCheck
+            //
+            B_HomeCheck.Location = new System.Drawing.Point(168, 537);
+            B_HomeCheck.Name = "B_HomeCheck";
+            B_HomeCheck.Size = new System.Drawing.Size(192, 27);
+            B_HomeCheck.TabIndex = 34;
+            B_HomeCheck.Text = "Check HOME Transfer Risk";
+            B_HomeCheck.UseVisualStyleBackColor = true;
+            B_HomeCheck.Click += B_HomeCheck_Click;
+            //
             // B_Run
             //
-            B_Run.Location = new System.Drawing.Point(178, 537);
+            B_Run.Location = new System.Drawing.Point(178, 569);
             B_Run.Name = "B_Run";
             B_Run.Size = new System.Drawing.Size(88, 27);
             B_Run.TabIndex = 32;
@@ -394,7 +405,7 @@ namespace PKHeX.WinForms
             //
             // B_Close
             //
-            B_Close.Location = new System.Drawing.Point(272, 537);
+            B_Close.Location = new System.Drawing.Point(272, 569);
             B_Close.Name = "B_Close";
             B_Close.Size = new System.Drawing.Size(88, 27);
             B_Close.TabIndex = 33;
@@ -405,7 +416,7 @@ namespace PKHeX.WinForms
             // SAV_BulkQoL
             //
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
-            ClientSize = new System.Drawing.Size(384, 577);
+            ClientSize = new System.Drawing.Size(384, 609);
             Controls.Add(L_Scope);
             Controls.Add(RB_Boxes);
             Controls.Add(RB_Party);
@@ -438,6 +449,7 @@ namespace PKHeX.WinForms
             Controls.Add(PB_Progress);
             Controls.Add(B_Cancel);
             Controls.Add(B_CheckClones);
+            Controls.Add(B_HomeCheck);
             Controls.Add(B_Run);
             Controls.Add(B_Close);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
@@ -485,6 +497,7 @@ namespace PKHeX.WinForms
         private System.Windows.Forms.ProgressBar PB_Progress;
         private System.Windows.Forms.Button B_Cancel;
         private System.Windows.Forms.Button B_CheckClones;
+        private System.Windows.Forms.Button B_HomeCheck;
         private System.Windows.Forms.Button B_Run;
         private System.Windows.Forms.Button B_Close;
     }

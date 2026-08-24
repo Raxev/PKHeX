@@ -328,6 +328,84 @@ public partial class SAV_BulkQoL : Form
             .ToArray();
     }
 
+    /// <summary>
+    /// Reports HOME-transfer risks that PKHeX's Legal/Illegal verdict does not surface: entities already
+    /// registered with HOME (where any immutable-field edit invalidates their Tracker), Fishy-severity checks
+    /// that don't turn the verdict red, and a few Gen9 fields PKHeX doesn't validate. Read-only.
+    /// </summary>
+    private async void B_HomeCheck_Click(object sender, EventArgs e)
+    {
+        ShowBusy();
+        var ct = _cts!.Token;
+        IReadOnlyList<HomeTransferPreCheck.Finding> findings;
+        try
+        {
+            var work = Task.Run(() => HomeTransferPreCheck.Scan(SAV));
+            var cancelTask = Task.Delay(Timeout.Infinite, ct);
+            var completed = await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(120)), cancelTask).ConfigureAwait(true);
+            if (completed != work)
+            {
+                WinFormsUtil.Alert(completed == cancelTask
+                    ? "HOME transfer check cancelled."
+                    : "HOME transfer check timed out after 120 seconds. Try a smaller scope to isolate a slow entity.");
+                return;
+            }
+            findings = await work.ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            WinFormsUtil.Alert("HOME transfer check failed with an error:", ex.Message);
+            return;
+        }
+        finally
+        {
+            HideBusy();
+        }
+
+        if (findings.Count == 0)
+        {
+            WinFormsUtil.Alert("No HOME transfer risks found.",
+                "Note this only covers what can be checked locally. HOME validates against its own server records, "
+                + "which PKHeX has no access to.");
+            return;
+        }
+
+        // Group by category: a whole save routinely produces the same finding for hundreds of Pokémon (every
+        // legalizer-generated entity shares the same Fishy checks), and one line each would be unreadable.
+        var nl = Environment.NewLine;
+        var gap = nl + nl;
+        var groups = findings
+            .GroupBy(f => (f.Level, f.Category))
+            .OrderByDescending(g => g.Key.Level)
+            .ThenByDescending(g => g.Count())
+            .Select(g =>
+            {
+                var header = $"[{g.Key.Level}] {g.Key.Category} -- {g.Count()} Pokémon";
+                var detail = "    " + g.First().Message;
+                var slots = g.Take(MaxSlotsPerGroup).Select(f => "      " + f.Slot.Identify());
+                var more = g.Count() > MaxSlotsPerGroup
+                    ? $"      ... and {g.Count() - MaxSlotsPerGroup} more"
+                    : null;
+                var listed = string.Join(nl, more is null ? slots : slots.Append(more));
+                return header + nl + detail + nl + listed;
+            });
+
+        var warnings = findings.Count(f => f.Level == HomeTransferPreCheck.Risk.Warning);
+        var affected = findings.Select(f => f.Slot.Entity).Distinct().Count();
+        var body = string.Join(gap, groups)
+                 + gap + "This only covers locally-checkable risks. HOME also validates against its own server "
+                 + "records, which PKHeX cannot see, so a clean report here is not a guarantee.";
+
+        using var viewer = new ReportViewer("HOME Transfer Pre-Check",
+            $"{findings.Count} finding(s) across {affected} Pokémon ({warnings} warning(s)) that the Legal verdict hides:",
+            body);
+        viewer.ShowDialog(this);
+    }
+
+
+    /// <summary>Cap on slots listed per finding group before collapsing into a "... and N more" line.</summary>
+    private const int MaxSlotsPerGroup = 12;
+
     private void ShowBusy()
     {
         _cts = new CancellationTokenSource();

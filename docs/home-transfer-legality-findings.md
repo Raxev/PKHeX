@@ -17,15 +17,27 @@ Date: 2026-08-23. Branch: `feature/bulk-qol-editor`.
   `PK9.FixMemories()` and clears `HandlingTrainerLanguage` for untraded non-gift entities.
 - **Doc comment bug.** `NatureEVPreset` described Jolly/Timid with the wrong boosted stat.
 
-### Confirmed gaps, NOT yet addressed (proposed, not built)
+### Fixed in a later pass (2026-08-24), verified by smoke test
 
-- `TeraTypeOverride` is never validated by PKHeX for ordinary species; the vendored AutoLegalityMod writes it
-  unguarded.
-- `ObedienceLevel` is never recomputed after AutoLegalityMod force-overwrites `MetLevel`.
-- TM record flags are never required to be *present* for a TM-learned move.
+- **`RegenSet` `.MetDate` silently failed.** Confirmed empirically (wanted 2023-03-15, got today's date). Now
+  formats as `yyyyMMdd` invariant. `RegenSet.cs:47`.
+- **HOME Transfer Pre-Check built.** `HomeTransferPreCheck.Scan` + "Check HOME Transfer Risk" button.
+
+### Corrected: two agent claims that did NOT reproduce
+
+- **`ObedienceLevel` drift — NOT reproduced.** Legalized entities came back with `ObedienceLevel == MetLevel`
+  in every case tested, including after `BulkAutoLegalize` regeneration. No speculative fix was written.
+  The pre-check reports a mismatch if one ever occurs, rather than blindly rewriting the field.
+- **`TeraTypeOverride` non-None — reproduced, but it is NOT a defect.** Requesting a different Tera type does
+  make ALM write an override (e.g. Garchomp `TeraOrig=Ground`, `Override=9/Fire`), but that is exactly what a
+  Tera Shard does in-game and it is legitimately legal. Auto-resetting it would destroy a deliberate user
+  choice. The pre-check instead flags only *out-of-range* override values, which PKHeX genuinely never checks.
+
+### Still open (proposed, not built)
+
+- TM record flags are never required to be *present* for a TM-learned move (mitigated: `LearnSource9SV`
+  catches it via a different path, so the effect is over-strict rejection rather than bad output).
 - `Scale` for `EncounterOutbreak9` is not range-verified.
-- `RegenSet`'s `.MetDate` batch instruction silently fails on a culture-formatted date.
-- No "HOME Transfer Pre-Check" tool exists to surface any of the above.
 
 ### Unknown / out of scope
 
@@ -265,3 +277,35 @@ guarded against.
 
 Forensic markers for already-damaged Pokemon: a nonzero `Tracker` that no longer matches HOME's record, and
 `Scale == 255 && !RibbonMarkJumbo` (pre-fix output of `SetMaxSizeForAll`).
+
+
+---
+
+## Addendum (2026-08-24): what the pre-check surfaces, and two new confirmations
+
+`PKHeX.Core/Editing/Bulk/HomeTransferPreCheck.cs`, surfaced via "Check HOME Transfer Risk" in Bulk QoL.
+Read-only. Groups findings by category, since a whole save produces the same finding hundreds of times.
+
+Detects:
+
+- **Already HOME-registered** (nonzero Tracker). Editing any immutable value invalidates the Tracker and HOME
+  refuses the upload while PKHeX still says Legal. This is the best-sourced cause of the reported symptom.
+- **Fishy-severity checks**, which never turn the verdict red (`CheckResult.cs:13`).
+- **`HeightScalar != Scale`** (Gen9), **max/min Scale without the Jumbo/Mini Mark**, **out-of-range
+  `TeraTypeOverride`**, and **`ObedienceLevel != MetLevel`** on traded entities.
+
+### New confirmation 1: every legalizer-generated entity carries two hidden Fishy checks
+
+A freshly generated, "Legal" Garchomp reports `EffortEXPIncreased` and `LevelEXPThreshold` as Fishy. Cause:
+EXP sits exactly on the level boundary (270000 for level 60) with all EVs at 0 — a "generated, never played"
+fingerprint. Legal, invisible in the headline verdict, and present on essentially every legalized Pokemon.
+
+### New confirmation 2: the Scale rule is latent until HOME touches the entity
+
+`MiscScaleVerifier.IsHeightScaleMatchRequired` is `pk is IHomeTrack { HasTracker: true }`, so
+`HeightScalar != Scale` is entirely unflagged before a HOME visit. The legalizer produces mismatched values.
+Verified: assigning a Tracker to such an entity immediately turns it Invalid with `StatIncorrectScaleValue_0`.
+
+Since HOME's own importer copies `Scale` over `HeightScalar` (`GameDataPK9.cs:135`), an entity that goes to
+HOME and returns comes back with the rule active. This is a concrete "looks fine now, illegal after a HOME
+round trip" trap, and the pre-check now flags it up front.
