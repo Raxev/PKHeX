@@ -118,6 +118,15 @@ public static class HomeTransferPreCheck
         }
     }
 
+    /// <summary>
+    /// Bulk edits skip HOME-registered entities by design (editing an immutable value invalidates their HOME
+    /// record), so a finding on one of those is reported but NOT actionable by the bulk tools. Saying so in the
+    /// category itself answers "why didn't my fix apply to these?" without the reader having to cross-reference
+    /// two separate groups.
+    /// </summary>
+    private static string Scope(PKM pk) =>
+        pk is IHomeTrack { Tracker: not 0 } ? " [HOME-registered, bulk edits skip these]" : " [fixable]";
+
     private static void AddGen9Risks(SlotCache slot, PK9 pk, List<Finding> findings)
     {
         // HOME's own PK9 importer sets Obedience_Level from MetLevel. PKHeX only enforces an exact match for
@@ -146,9 +155,20 @@ public static class HomeTransferPreCheck
         // completely unflagged -- but HOME's own importer copies Scale over HeightScalar, so after a round trip
         // the entity comes back with the rule active. Verified: adding a Tracker to a mismatched entity
         // immediately turns it Invalid with StatIncorrectScaleValue.
-        if (pk.HeightScalar != pk.Scale)
+        if (pk.HeightScalar != pk.Scale && pk is IHomeTrack { Tracker: not 0 })
         {
-            findings.Add(new Finding(slot, Risk.Warning, "HeightScalar != Scale",
+            // This combination should already be an outright legality error, since the match requirement is
+            // active whenever a Tracker exists. Seeing it alongside a Legal verdict means something upstream
+            // disagrees, and is worth surfacing loudly rather than filing under the ordinary mismatch group.
+            findings.Add(new Finding(slot, Risk.Warning, "HeightScalar != Scale WHILE HOME-registered",
+                $"HeightScalar ({pk.HeightScalar}) does not match Scale ({pk.Scale}) on a Pokémon that already " +
+                "has a HOME Tracker. PKHeX enforces that match once a Tracker exists, so this should be showing " +
+                "as an outright legality error. Bulk edits deliberately skip HOME-registered Pokémon, so this " +
+                "one needs manual attention."));
+        }
+        else if (pk.HeightScalar != pk.Scale)
+        {
+            findings.Add(new Finding(slot, Risk.Warning, "HeightScalar != Scale" + Scope(pk),
                 $"HeightScalar ({pk.HeightScalar}) does not match Scale ({pk.Scale}). Harmless right now, but " +
                 "PKHeX enforces a match once the Pokémon is HOME-tracked, so it becomes an outright legality " +
                 "error after a HOME round trip."));
@@ -160,9 +180,9 @@ public static class HomeTransferPreCheck
         if (pk is IRibbonSetMark9 marks)
         {
             if (pk.Scale == byte.MaxValue && !marks.RibbonMarkJumbo)
-                findings.Add(new Finding(slot, Risk.Warning, "Max Scale without Jumbo Mark", "Scale is maxed (255) but the Jumbo Mark is absent -- the game always awards it at that size."));
+                findings.Add(new Finding(slot, Risk.Warning, "Max Scale without Jumbo Mark" + Scope(pk), "Scale is maxed (255) but the Jumbo Mark is absent -- the game always awards it at that size."));
             else if (pk.Scale == byte.MinValue && !marks.RibbonMarkMini)
-                findings.Add(new Finding(slot, Risk.Warning, "Min Scale without Mini Mark", "Scale is minimum (0) but the Mini Mark is absent -- the game always awards it at that size."));
+                findings.Add(new Finding(slot, Risk.Warning, "Min Scale without Mini Mark" + Scope(pk), "Scale is minimum (0) but the Mini Mark is absent -- the game always awards it at that size."));
         }
     }
 }
