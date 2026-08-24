@@ -20,9 +20,13 @@ public static class BulkQoLEditor
     /// <param name="SkippedIllegal">Entities where the edit was reverted because it made the entity illegal.</param>
     /// <param name="SkippedInvalid">Entities that were skipped entirely (empty slot).</param>
     /// <param name="AlreadyLegal">Entities that were intentionally left untouched (already didn't need the edit, e.g. moves already legal, or the edit is unsupported for that entity's format).</param>
-    public readonly record struct BulkEditResult(int Modified, int SkippedIllegal, int SkippedInvalid, int AlreadyLegal = 0)
+    /// <param name="AlreadyIllegal">Entities that were illegal <i>before</i> the edit was attempted. A guarded
+    /// edit can never succeed on these -- the guard requires the entity to be legal afterward, which an
+    /// already-illegal entity cannot be -- so reporting them as "the edit would have made it illegal" is
+    /// actively misleading. They need their underlying legality fixed first.</param>
+    public readonly record struct BulkEditResult(int Modified, int SkippedIllegal, int SkippedInvalid, int AlreadyLegal = 0, int AlreadyIllegal = 0)
     {
-        public int Total => Modified + SkippedIllegal + SkippedInvalid + AlreadyLegal;
+        public int Total => Modified + SkippedIllegal + SkippedInvalid + AlreadyLegal + AlreadyIllegal;
     }
 
     /// <summary>
@@ -517,7 +521,7 @@ public static class BulkQoLEditor
     /// </remarks>
     public static BulkEditResult RegeneratePIDTrackerAndECForAll(IEnumerable<PKM> mons)
     {
-        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNothingToDo = 0;
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNothingToDo = 0, alreadyIllegal = 0;
         foreach (var pk in mons)
         {
             if (pk.Species == 0)
@@ -534,12 +538,30 @@ public static class BulkQoLEditor
                 continue;
             }
 
+            // Distinguish "our edit broke it" from "it was already broken". TryApplyGuarded can never keep an
+            // edit on an entity that is illegal to begin with, so lumping those in with SkippedIllegal reports
+            // a cause that is the exact opposite of the truth and sends the user hunting for the wrong problem.
+            bool legalBefore;
+            try
+            {
+                legalBefore = new LegalityAnalysis(pk).Valid;
+            }
+            catch (Exception)
+            {
+                legalBefore = false;
+            }
+            if (!legalBefore)
+            {
+                alreadyIllegal++;
+                continue;
+            }
+
             if (TryApplyGuarded(pk, RegenerateIdentity))
                 modified++;
             else
                 skippedIllegal++;
         }
-        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNothingToDo);
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNothingToDo, alreadyIllegal);
 
         static void RegenerateIdentity(PKM pk)
         {

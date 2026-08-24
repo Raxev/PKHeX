@@ -237,7 +237,8 @@ public partial class SAV_BulkQoL : Form
         // (e.g. a genuine fixed-PID event) and need manual attention instead.
         var leftover = CloneDetector.FindLikelyClones(SAV);
         var summary = $"Regenerate PID/Tracker/EC: {fixResult.Modified} regenerated, "
-                    + $"{fixResult.SkippedIllegal} skipped (would be illegal), "
+                    + $"{fixResult.AlreadyIllegal} skipped (ALREADY illegal before the fix), "
+                    + $"{fixResult.SkippedIllegal} skipped (the change itself would break legality), "
                     + $"{fixResult.AlreadyLegal} skipped (nothing applicable).";
 
         if (leftover.Count == 0)
@@ -248,9 +249,13 @@ public partial class SAV_BulkQoL : Form
 
         // Anything still listed failed the legality guard (e.g. a genuine fixed-PID event encounter) and
         // needs manual attention -- show it in the scrollable viewer too rather than clipping it.
-        var leftoverBody = string.Join(gap, SummarizeFindings(leftover))
-                         + gap + "These could not be auto-fixed: regenerating their PID/EC would have made "
-                         + "them illegal, so each was reverted individually and left as-is.";
+        var leftoverBody = string.Join(gap, SummarizeFindings(leftover)) + gap + (fixResult.AlreadyIllegal > 0
+            ? $"{fixResult.AlreadyIllegal} of these were ALREADY illegal before any fix was attempted. A guarded "
+              + "edit can never succeed on those: it only keeps a change if the Pokémon is legal afterward, which "
+              + "an already-illegal Pokémon cannot be. Fix their underlying legality first (check the Legality "
+              + "report on one, or try Auto-enforce legality), then re-run the clone fix."
+            : "These could not be auto-fixed: regenerating their PID/EC would itself have broken legality, so "
+              + "each was reverted individually and left as-is.");
         using var leftoverViewer = new ReportViewer("Clone / Duplicate Report -- Remaining",
             $"{summary}  {leftover.Count} finding(s) still remain:", leftoverBody);
         leftoverViewer.ShowDialog(this);
@@ -578,7 +583,7 @@ public partial class SAV_BulkQoL : Form
             // Also before auto-legalize: a full regeneration already assigns a fresh PID/EC by construction,
             // so this mainly matters for entities that keep their original (non-regenerated) data.
             var result = BulkQoLEditor.RegeneratePIDTrackerAndECForAll(eligible.Select(s => s.Entity));
-            lines.Add($"Regenerate PID/Tracker/EC: {result.Modified} regenerated, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (nothing applicable), {result.SkippedInvalid} skipped (empty)");
+            lines.Add($"Regenerate PID/Tracker/EC: {result.Modified} regenerated, {result.AlreadyIllegal} skipped (already illegal beforehand), {result.SkippedIllegal} skipped (change would break legality), {result.AlreadyLegal} skipped (nothing applicable), {result.SkippedInvalid} skipped (empty)");
         }
         if (Cancelled(ct, lines)) return lines;
         if (plan.AutoLegalize)
