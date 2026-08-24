@@ -309,3 +309,44 @@ Verified: assigning a Tracker to such an entity immediately turns it Invalid wit
 Since HOME's own importer copies `Scale` over `HeightScalar` (`GameDataPK9.cs:135`), an entity that goes to
 HOME and returns comes back with the rule active. This is a concrete "looks fine now, illegal after a HOME
 round trip" trap, and the pre-check now flags it up front.
+
+
+---
+
+## Addendum 2 (2026-08-24): real-save results and two fixes derived from them
+
+Running the pre-check against the user's Violet save produced the numbers that shaped the next two fixes.
+
+| Finding | Count |
+|---|---|
+| HOME-registered (Tracker set) | 320 |
+| HeightScalar != Scale | 157 |
+| Fishy: LevelEXPThreshold | 83 |
+| Fishy: MemoryMissingHT | 19 |
+| Fishy: EffortEXPIncreased / IVAllEqual_0 | 4 each |
+| Max/Min Scale without Jumbo/Mini Mark | 3 |
+
+Key structural observation: **the HOME-registered population and the clone population are disjoint.** In
+Box 9, slots 03-12 (Necrozma, Kyurem, Urshifu, Calyrex, Deoxys, Corviknight) carry Trackers, while slots
+01-02 (the cloned Miraidon/Koraidon) do not. So the clone clusters were never in HOME, and the 320 tracked
+entities are a separate group that would be silently broken by any immutable-field edit.
+
+`HeightScalar = 0` against `Scale = 128` across 157 entities is a generated-data signature; SV rolls the
+scalars independently, but not to a constant 0.
+
+### Fix: skip HOME-registered entities in bulk edits (default ON)
+
+New "Skip HOME-registered" filter in Bulk QoL. Excludes any entity with a nonzero Tracker from every bulk
+edit, because nearly all of them touch at least one of HOME's immutable values.
+
+### Fix: `BulkQoLEditor.AlignSizeToScaleForAll`
+
+Sets `HeightScalar` and `WeightScalar` equal to `Scale` for Gen9, matching what HOME's importer does on
+arrival (`GameDataPK9.cs:135`, and the `MiscScaleVerifier.cs:33-34` comment "If touched by HOME, Scale is
+copied to both Height and Weight properties. Thus, only n-n is valid.").
+
+Deliberately **skips entities that already have a Tracker**: size is on HOME's immutable list, so aligning a
+HOME-registered entity would invalidate its record. For those, HOME's stored values are authoritative.
+
+Verified end to end: a mismatched entity (Height 0 / Scale 128) becomes Invalid the moment a Tracker is
+assigned; after alignment it stays Legal with a Tracker present. That is the latent trap removed.

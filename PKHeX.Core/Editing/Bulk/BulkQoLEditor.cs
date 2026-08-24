@@ -283,6 +283,65 @@ public static class BulkQoLEditor
     }
 
     /// <summary>
+    /// Sets <see cref="IScaledSize.HeightScalar"/> and <see cref="IScaledSize.WeightScalar"/> equal to
+    /// <see cref="IScaledSize3.Scale"/> on Gen9 entities, matching what Pokémon HOME's own importer does on
+    /// arrival. Reverts any entity that becomes illegal as a result.
+    /// </summary>
+    /// <remarks>
+    /// SV rolls Scale and the Height/Weight scalars independently, so a mismatch is unflagged and harmless
+    /// while the entity has never been to HOME. But <c>MiscScaleVerifier.IsHeightScaleMatchRequired</c> is
+    /// <c>pk is IHomeTrack { HasTracker: true }</c>, and HOME copies Scale over both scalars on import -- so a
+    /// mismatched entity that visits HOME comes back with the rule active and reports an outright
+    /// <c>StatIncorrectScaleValue</c> error. Aligning up front removes that latent trap.
+    /// <para/>
+    /// Entities that <b>already</b> have a Tracker are deliberately skipped, not aligned: Height/Weight/Scale
+    /// are on HOME's documented immutable list, so editing them on an entity HOME already has a record of
+    /// invalidates that record. For those, HOME's stored values are authoritative and there is nothing to fix
+    /// locally.
+    /// </remarks>
+    public static BulkEditResult AlignSizeToScaleForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNotApplicable = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+
+            // Not Gen9-shaped, already aligned, or HOME-registered (where changing size breaks the record).
+            if (pk is not (IScaledSize3 and IScaledSize) || pk is IHomeTrack { Tracker: not 0 })
+            {
+                skippedNotApplicable++;
+                continue;
+            }
+
+            var s3 = (IScaledSize3)pk;
+            var s2 = (IScaledSize)pk;
+            if (s2.HeightScalar == s3.Scale && s2.WeightScalar == s3.Scale)
+            {
+                skippedNotApplicable++;
+                continue;
+            }
+
+            if (TryApplyGuarded(pk, Align))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
+
+        static void Align(PKM pk)
+        {
+            var scale = ((IScaledSize3)pk).Scale;
+            var size = (IScaledSize)pk;
+            size.HeightScalar = scale;
+            size.WeightScalar = scale;
+        }
+    }
+
+    /// <summary>
     /// Clears leftover Nickname/OT/HT "trash" bytes and fixes Handling Trainer memory that the legality
     /// checker flags as "Trash Bytes should be cleared" / "Memory: Not cleared properly" / "Memory: Handling
     /// Trainer Memory missing" — edits made outside the normal name-entry UI (or an HT that got added/removed

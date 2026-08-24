@@ -59,11 +59,13 @@ public partial class SAV_BulkQoL : Form
         bool FilterShinyOnly,
         bool FilterSpecies, ushort FilterSpeciesValue,
         bool FilterGiftOrigin,
+        bool FilterSkipHomeTracked,
         bool Ball, byte BallValue,
         bool MetLocation, ushort MetLocationValue,
         bool Shiny, bool ShinyValue, bool PreferSquare,
         bool MaxIVs,
         bool MaxSize,
+        bool AlignSize,
         bool NaturePreset, BulkQoLEditor.NatureEVPreset NaturePresetValue,
         bool OptimizeIVs,
         bool MaxPP,
@@ -77,11 +79,13 @@ public partial class SAV_BulkQoL : Form
         CHK_FilterShinyOnly.Checked,
         CHK_FilterSpecies.Checked, (ushort)WinFormsUtil.GetIndex(CB_FilterSpecies),
         CHK_FilterGiftOrigin.Checked,
+        CHK_SkipHomeTracked.Checked,
         CHK_Ball.Checked, (byte)WinFormsUtil.GetIndex(CB_Ball),
         CHK_MetLocation.Checked, (ushort)WinFormsUtil.GetIndex(CB_MetLocation),
         CHK_Shiny.Checked, RB_ShinyOn.Checked, CHK_PreferSquare.Checked,
         CHK_MaxIVs.Checked,
         CHK_MaxSize.Checked,
+        CHK_AlignSize.Checked,
         CHK_NaturePreset.Checked, (BulkQoLEditor.NatureEVPreset)CB_NaturePreset.SelectedItem!,
         CHK_OptimizeIVs.Checked,
         CHK_MaxPP.Checked,
@@ -439,7 +443,7 @@ public partial class SAV_BulkQoL : Form
 
     private static bool HasAnyEditSelected(Plan plan) =>
         plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.MaxSize || plan.NaturePreset
-        || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.RegenTrackerEC
+        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.RegenTrackerEC
         || plan.AutoLegalize;
 
     /// <summary>
@@ -449,7 +453,8 @@ public partial class SAV_BulkQoL : Form
     /// </summary>
     private static List<SlotCache> ApplyFilters(List<SlotCache> eligible, Plan plan)
     {
-        if (!plan.FilterIllegalOnly && !plan.FilterShinyOnly && !plan.FilterSpecies && !plan.FilterGiftOrigin)
+        if (!plan.FilterIllegalOnly && !plan.FilterShinyOnly && !plan.FilterSpecies && !plan.FilterGiftOrigin
+            && !plan.FilterSkipHomeTracked)
             return eligible;
 
         var result = new List<SlotCache>(eligible.Count);
@@ -465,6 +470,12 @@ public partial class SAV_BulkQoL : Form
             if (plan.FilterIllegalOnly && new LegalityAnalysis(pk).Valid)
                 continue;
             if (plan.FilterGiftOrigin && !HomeRiskAnalyzer.IsGiftOrigin(pk))
+                continue;
+            // A Pokémon that already has a HOME Tracker has a matching server-side record. Editing any of
+            // HOME's immutable values (PID, EC, IVs, Nature, Ball, Met data, size, Ribbons, OT, TID/SID)
+            // invalidates that record and HOME then refuses the upload, while PKHeX still reports it Legal.
+            // Most edits below touch at least one of those, so these are excluded by default.
+            if (plan.FilterSkipHomeTracked && pk is IHomeTrack { Tracker: not 0 })
                 continue;
             result.Add(slot);
         }
@@ -522,6 +533,12 @@ public partial class SAV_BulkQoL : Form
         {
             var result = BulkQoLEditor.SetMaxSizeForAll(eligible.Select(s => s.Entity));
             lines.Add($"Max size: {result.Modified} modified, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (pre-Gen8, no size scalar), {result.SkippedInvalid} skipped (empty)");
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.AlignSize)
+        {
+            var result = BulkQoLEditor.AlignSizeToScaleForAll(eligible.Select(s => s.Entity));
+            lines.Add($"Align Height/Weight to Scale: {result.Modified} aligned, {result.SkippedIllegal} skipped (would be illegal), {result.AlreadyLegal} skipped (already aligned, non-Gen9, or HOME-registered), {result.SkippedInvalid} skipped (empty)");
         }
         if (Cancelled(ct, lines)) return lines;
         if (plan.NaturePreset)
