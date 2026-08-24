@@ -195,21 +195,34 @@ public partial class SAV_BulkQoL : Form
         }
 
         var lines = SummarizeFindings(findings);
-        WinFormsUtil.Alert([$"{findings.Count} likely clone(s)/duplicate(s) found:", .. lines, giftNotice]);
 
         var fixable = findings.Where(f => f.DuplicateSlot is not null).Select(f => f.DuplicateSlot!).ToList();
-        if (fixable.Count == 0)
-            return; // e.g. only a duplicate-gift-egg finding, which has no safe automatic fix
-
         // DistinctBy: a Pokémon involved in 3+ mutually-identical copies produces multiple findings all pointing
         // back to the same first-seen original, but each finding's *other* side is still a distinct duplicate --
         // this collects every one of those in a single pass rather than fixing only one per round.
         var distinctFixable = fixable.DistinctBy(s => s.Entity).ToList();
-        var reply = WinFormsUtil.Prompt(MessageBoxButtons.YesNo,
-            $"Regenerate the PID/HOME Tracker/Encryption Constant now for the {distinctFixable.Count} newly-detected duplicate(s) above (the first-seen original in each group is left untouched)?",
-            "Species/gender/nature/form/shininess are preserved exactly. Reverts per-Pokémon if the change would make it illegal.");
-        if (reply != DialogResult.Yes)
-            return;
+
+        var gap = Environment.NewLine + Environment.NewLine;
+        var body = string.Join(gap, lines);
+        if (giftNotice is not null)
+            body += gap + giftNotice;
+        if (distinctFixable.Count != 0)
+        {
+            body += gap + "Fixing regenerates the PID/HOME Tracker/Encryption Constant of the "
+                 + $"{distinctFixable.Count} newly-detected duplicate(s); the first-seen original in each group "
+                 + "is left untouched. Species/gender/nature/form/shininess are preserved exactly, and any "
+                 + "Pokémon the change would make illegal is reverted individually.";
+        }
+
+        // Scrollable viewer rather than WinFormsUtil.Alert: a MessageBox grows past the screen and clips instead
+        // of scrolling, so a save with 100+ clones was unreadable. Doubles as the confirm prompt.
+        var actionText = distinctFixable.Count == 0 ? null : $"Fix {distinctFixable.Count} Duplicate(s)";
+        using var viewer = new ReportViewer("Clone / Duplicate Report",
+            $"{findings.Count} likely clone(s)/duplicate(s) found in {lines.Length} group(s):", body, actionText);
+        var reply = viewer.ShowDialog(this);
+
+        if (distinctFixable.Count == 0 || reply != DialogResult.Yes)
+            return; // e.g. only a duplicate-gift-egg finding, which has no safe automatic fix
 
         var fixResult = BulkQoLEditor.RegeneratePIDTrackerAndECForAll(distinctFixable.Select(s => s.Entity));
         foreach (var slot in distinctFixable)
@@ -219,10 +232,24 @@ public partial class SAV_BulkQoL : Form
         // actually worked -- a leftover count here means those specific entities failed the legality guard
         // (e.g. a genuine fixed-PID event) and need manual attention instead.
         var leftover = CloneDetector.FindLikelyClones(SAV);
-        WinFormsUtil.Alert($"Regenerate PID/Tracker/EC: {fixResult.Modified} regenerated, {fixResult.SkippedIllegal} skipped (would be illegal), {fixResult.AlreadyLegal} skipped (nothing applicable).",
-            leftover.Count == 0
-                ? "Re-verified: no more likely clones/duplicates in this save."
-                : $"Re-verified: {leftover.Count} finding(s) still remain -- likely entities where regenerating would have made them illegal (see skipped count above), so they were left as-is.");
+        var summary = $"Regenerate PID/Tracker/EC: {fixResult.Modified} regenerated, "
+                    + $"{fixResult.SkippedIllegal} skipped (would be illegal), "
+                    + $"{fixResult.AlreadyLegal} skipped (nothing applicable).";
+
+        if (leftover.Count == 0)
+        {
+            WinFormsUtil.Alert(summary, "Re-verified: no more likely clones/duplicates in this save.");
+            return;
+        }
+
+        // Anything still listed failed the legality guard (e.g. a genuine fixed-PID event encounter) and
+        // needs manual attention -- show it in the scrollable viewer too rather than clipping it.
+        var leftoverBody = string.Join(gap, SummarizeFindings(leftover))
+                         + gap + "These could not be auto-fixed: regenerating their PID/EC would have made "
+                         + "them illegal, so each was reverted individually and left as-is.";
+        using var leftoverViewer = new ReportViewer("Clone / Duplicate Report -- Remaining",
+            $"{summary}  {leftover.Count} finding(s) still remain:", leftoverBody);
+        leftoverViewer.ShowDialog(this);
     }
 
     /// <summary>
