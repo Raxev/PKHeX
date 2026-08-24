@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using PKHeX.Core.Bulk;
 
@@ -74,9 +75,56 @@ public static class CloneDetector
 
             var first = analysis.AllData[index1];
             SlotCache? second = index2 == BulkCheckResult.NoIndex ? null : analysis.AllData[index2];
+            if (IsMandatedZeroEncryptionPair(chk.Result, first, second))
+                continue;
             findings.Add(new Finding(Describe(chk.Result), first, second, chk.Result));
         }
         return findings;
+    }
+
+    private static readonly HashSet<LegalityCheckResultCode> EncryptionSharingCodes =
+    [
+        LegalityCheckResultCode.BulkSharingEncryptionConstantGenerationDifferent,
+        LegalityCheckResultCode.BulkSharingEncryptionConstantGenerationSame,
+        LegalityCheckResultCode.BulkSharingEncryptionConstantEncounterType,
+    ];
+
+    /// <summary>
+    /// Suppresses a shared-Encryption-Constant finding when the shared value is zero and both entities are
+    /// REQUIRED to have it, which makes the match evidence of nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// HOME gifts redeemed before HOME 3.0.0 were written with a literal zero PID and Encryption Constant, and
+    /// <c>WC8.IsMatchExact</c> enforces <c>EncryptionConstant == 0</c> for them. Two such entities therefore
+    /// "share" an EC no matter how unrelated they are -- a Melmetal and a Zeraora will collide purely because
+    /// neither is allowed to have a nonzero value. Reporting that as "almost certainly cloned" is a false
+    /// positive, and the fix it invites is impossible by construction.
+    /// <para/>
+    /// Verified by attempting a nonzero EC on a throwaway copy rather than by guessing at encounter types: if
+    /// the entity stays legal with a different EC, the zero was not mandated and the finding is genuine.
+    /// </remarks>
+    private static bool IsMandatedZeroEncryptionPair(LegalityCheckResultCode code, SlotCache first, SlotCache? second)
+    {
+        if (!EncryptionSharingCodes.Contains(code) || second is not { } other)
+            return false;
+        if (first.Entity.EncryptionConstant != 0 || other.Entity.EncryptionConstant != 0)
+            return false;
+        return IsZeroEncryptionMandated(first.Entity) && IsZeroEncryptionMandated(other.Entity);
+    }
+
+    private static bool IsZeroEncryptionMandated(PKM pk)
+    {
+        try
+        {
+            var probe = pk.Clone();
+            probe.EncryptionConstant = 0x12345678; // any nonzero value
+            probe.RefreshChecksum();
+            return !new LegalityAnalysis(probe).Valid;
+        }
+        catch (Exception)
+        {
+            return false; // can't tell -> keep reporting it
+        }
     }
 
     private static string Describe(LegalityCheckResultCode code) => code switch

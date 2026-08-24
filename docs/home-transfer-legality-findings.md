@@ -472,3 +472,31 @@ scope now uses `AddFromSaveFile` so it covers the whole save.
   each needs a per-entity judgement call, and most overlap the HOME-registered set that bulk edits correctly
   refuse to touch.
 - **320 HOME-registered** -- working as designed. This is a protection, not a defect.
+
+
+---
+
+## Addendum 7 (2026-08-24): Gen8 -- zero Encryption Constant is mandated, not a collision
+
+A Sword/Shield save reported a Melmetal and a Zeraora "sharing a raw Encryption Constant". Every filename
+ended in `00000000`, i.e. `EncryptionConstant == 0` on both.
+
+`WC8.IsMatchExact` (`PKHeX.Core/MysteryGifts/WC8.cs:663-671`):
+
+> Prior to 3.0.0, HOME would set the Encryption Constant exactly and not give a random value if it was 0.
+> HOME gifts -- PID and EC are zeroes...
+
+For a HOME gift redeemed before HOME 3.0.0, `EncryptionConstant == 0` is **required** to match the card. Two
+such entities therefore collide on EC no matter how unrelated they are -- a Melmetal and a Zeraora share it
+purely because neither is permitted a nonzero value. Reporting that as "almost certainly cloned" was a false
+positive, and the fix it invited was impossible by construction.
+
+`CloneDetector` now suppresses a shared-EC finding when the shared value is zero **and** both entities are
+proven to require it, by attempting a nonzero EC on a throwaway copy. If the copy stays legal the zero was not
+mandated and the finding is kept.
+
+Verified both directions: two ordinary Gen8 entities forced to EC 0 (where nonzero is legal) still report the
+collision, and genuine identical-copy clones are unaffected.
+
+The Melmetal x4 and Zeraora x2 PID clusters in the same report are correctly identified as Mystery Gift
+duplicates and remain unfixable -- delete the extras.
