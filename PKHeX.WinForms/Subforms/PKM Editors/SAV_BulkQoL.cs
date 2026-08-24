@@ -367,7 +367,17 @@ public partial class SAV_BulkQoL : Form
                 var shiny = sample.IsShiny ? "★ " : "";
                 var name = GameInfo.Strings.specieslist[sample.Species];
                 var slots = group.Select(e => "  [" + slotByEntity[e].Identify() + "]").OrderBy(s => s, StringComparer.Ordinal);
-                return $"{shiny}{name} (Form {sample.Form}): {group.Count} copies share an identical PID/IVs/form --\n" + string.Join("\n", slots);
+                // A Mystery Gift's identity is pinned by the card itself (a fixed PID, or a shiny type such as
+                // AlwaysStar that demands an exact ShinyXor), so copies of one redemption cannot be given distinct
+                // PIDs while staying legal -- no amount of rerolling or regeneration separates them. Say so instead
+                // of letting the fix silently fail on them every single run.
+                var giftNote = HomeRiskAnalyzer.IsGiftOrigin(sample)
+                    ? Environment.NewLine + "  NOT FIXABLE BY REGENERATION: copies of a single Mystery Gift redemption. "
+                      + "The card pins the identity, so they cannot be given distinct PIDs and stay legal. "
+                      + "Keep one and delete the rest."
+                    : string.Empty;
+                return $"{shiny}{name} (Form {sample.Form}): {group.Count} copies share an identical PID/IVs/form --{giftNote}"
+                     + Environment.NewLine + string.Join(Environment.NewLine, slots);
             })
             .Concat(otherLines)
             .ToArray();

@@ -350,3 +350,42 @@ HOME-registered entity would invalidate its record. For those, HOME's stored val
 
 Verified end to end: a mismatched entity (Height 0 / Scale 128) becomes Invalid the moment a Tracker is
 assigned; after alignment it stays Legal with a Tracker present. That is the latent trap removed.
+
+
+---
+
+## Addendum 3 (2026-08-24): the Miraidon/Koraidon clones are Mystery Gift copies, and are unfixable
+
+Four rounds of fixes failed to separate 34 shiny Miraidon/Koraidon. Decoding `wc9.pkl` explains why.
+
+```
+Record 203: Miraidon   CardID=1540  Shiny=AlwaysStar  Level=100  Scale=128
+Record 204: Koraidon   CardID=1540  Shiny=AlwaysStar  Level=100  Scale=128
+            OT='Paldea'  TID=23854  SID=23502  Location=40001
+```
+
+Consequences, all of which match the observed behaviour exactly:
+
+- The shiny box legends are **legal**. They match this gift, not the story `EncounterStatic9` (which is
+  `Shiny = Never`). An earlier suspicion that they were illegal was wrong.
+- `Shiny.AlwaysStar.IsValid` is `pk.ShinyXor == 1` -- **exactly 1**, not merely "shiny". That is a far tighter
+  constraint than `Shiny.Always`, and it is why the legalizer converges on the same PID every attempt and why
+  uniqueness retries cannot escape it.
+- The card's `Scale = 128` matches the observed Scale on every copy.
+- All 34 are copies of a single redemption of CardID 1540.
+
+**A Mystery Gift's identity is pinned by the card.** Copies of one redemption cannot be given distinct PIDs
+while remaining legal, so no reroll, seed search, or regeneration will ever separate them. The clone report
+now labels gift-origin clusters "NOT FIXABLE BY REGENERATION" rather than silently failing on them each run.
+
+The remaining unfixable clusters are the same class: Enamorus, Eternatus, Zacian, Zamazenta, Deoxys, and the
+Box 18/19 raid/event batch (Charizard, Decidueye, Greninja, Cinderace and friends sharing `76D1FFDC` /
+`CEB8F7B2` / `49F8A7F6`). For all of these the resolution is deduplication by deletion, not editing.
+
+### What this closes
+
+The original question was why non-gift SV Pokemon fail HOME transfer. The investigation ends with the
+clone population being overwhelmingly **gift and raid-event origin**, where duplication is inherent to how the
+data was produced and HOME's own one-redemption-per-account model makes duplicates unacceptable regardless of
+PID. The genuinely fixable categories (size/scale alignment, HT memory, trash bytes, tracker forging, Square
+shiny) were all found and fixed along the way and are listed above.
