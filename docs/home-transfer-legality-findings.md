@@ -500,3 +500,33 @@ collision, and genuine identical-copy clones are unaffected.
 
 The Melmetal x4 and Zeraora x2 PID clusters in the same report are correctly identified as Mystery Gift
 duplicates and remain unfixable -- delete the extras.
+
+
+---
+
+## Addendum 8 (2026-08-24): missing OT memory IS auto-fixable
+
+`MemoryVerifier.cs:352` raises `MemoryMissingOT` when the Original Trainer memory is 0 on an entity that
+`CanHaveMemoryForOT` says may hold one. Severity is Fishy for Gen8, so it never turns the verdict red.
+
+Earlier notes on `FixTrashAndMemoryForAll` claimed OT memory could not be fixed generically because "the
+correct value is either historically fixed per-encounter or must be zero, with no generic safe guess". That
+was too pessimistic. Probing empirically shows several memory values clear the finding for a given encounter:
+a Dynamax Adventure catch (`EncounterStatic8U`) accepts memories 8, 9, 11, 12, 13 and 15, each staying legal.
+
+`BulkQoLEditor.FixOriginalTrainerMemoryForAll` therefore **searches** rather than guessing. For each flagged
+entity it walks the memory values `MemoryContext8.CanObtainMemoryOT` permits for that game, applying
+`GetMinimumIntensity` and `GetRandomFeeling8` so the memory is internally consistent, and keeps the first that
+is legal AND clears the finding. Entities that must keep memory 0 never enter the search, because the verifier
+only raises the finding when a memory is permitted -- confirmed with a WC8 gift, which is left untouched.
+
+### Why this one edit is exempt from the HOME-registered filter
+
+Memory fields are **not** on HOME's documented immutable list (PID, EC, IVs, Nature, Ability, Language, Origin
+Game, Met data, Ball, Original Tera Type, Gigantamax, Relearn Moves, Height/Weight/Scale, Ribbons, OT Name,
+OT Gender, TID, SID). Fixing a memory therefore cannot invalidate a HOME Tracker.
+
+That matters practically: entities missing an OT memory are overwhelmingly the transferred ones the
+"Skip HOME-registered" filter excludes, so a blanket filter would have made this fix reach almost none of
+them. The OT-memory step runs against a scope with that one filter disabled. Verified: a tracked entity is
+fixed and its Tracker survives byte-identical.

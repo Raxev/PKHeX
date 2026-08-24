@@ -71,6 +71,7 @@ public partial class SAV_BulkQoL : Form
         bool MaxPP,
         bool FixMoves,
         bool FixTrashMemory,
+        bool FixOTMemory,
         bool RegenTrackerEC,
         bool AutoLegalize);
 
@@ -91,6 +92,7 @@ public partial class SAV_BulkQoL : Form
         CHK_MaxPP.Checked,
         CHK_FixMoves.Checked,
         CHK_FixTrashMemory.Checked,
+        CHK_FixOTMemory.Checked,
         CHK_RegenTrackerEC.Checked,
         CHK_AutoLegalize.Checked);
 
@@ -506,7 +508,7 @@ public partial class SAV_BulkQoL : Form
 
     private static bool HasAnyEditSelected(Plan plan) =>
         plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.MaxSize || plan.NaturePreset
-        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.RegenTrackerEC
+        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.RegenTrackerEC
         || plan.AutoLegalize;
 
     /// <summary>
@@ -554,6 +556,14 @@ public partial class SAV_BulkQoL : Form
     private static List<string> RunEdits(List<SlotCache> eligible, SaveFile sav, Plan plan, CancellationToken ct)
     {
         var lines = new List<string>();
+
+        // Memory fields are NOT on HOME's immutable list, so fixing them cannot invalidate a HOME Tracker.
+        // That makes the OT-memory fix the one edit here that is safe to apply to HOME-registered entities,
+        // and most entities missing an OT memory are exactly the transferred ones the filter excludes -- so it
+        // gets its own scope with that particular filter turned off.
+        var memoryScope = plan.FilterSkipHomeTracked
+            ? ApplyFilters(eligible, plan with { FilterSkipHomeTracked = false })
+            : null;
 
         var filtered = ApplyFilters(eligible, plan);
         if (filtered.Count == 0)
@@ -634,6 +644,15 @@ public partial class SAV_BulkQoL : Form
             // Also run before auto-legalize: cleaner starting data, less for the legalizer to fix.
             var result = BulkQoLEditor.FixTrashAndMemoryForAll(eligible.Select(s => s.Entity), sav);
             lines.Add(Describe("Fix trash bytes / HT memory", result));
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.FixOTMemory)
+        {
+            var scope = memoryScope ?? eligible;
+            var result = BulkQoLEditor.FixOriginalTrainerMemoryForAll(scope.Select(s => s.Entity));
+            lines.Add($"Fix missing OT memory: {result.Modified} filled in, {result.SkippedIllegal} no valid memory found, {result.AlreadyLegal} skipped (not missing one, or non-Gen8), {result.SkippedInvalid} skipped (empty)");
+            foreach (var slot in scope)
+                slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
         }
         if (Cancelled(ct, lines)) return lines;
         if (plan.RegenTrackerEC)

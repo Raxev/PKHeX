@@ -489,6 +489,95 @@ public static class BulkQoLEditor
         return taken;
     }
 
+    /// <summary>
+    /// Fills in a missing Original Trainer memory on entities the legality checker flags with
+    /// <see cref="LegalityCheckResultCode.MemoryMissingOT"/>, by searching the memory values the entity's game
+    /// can actually produce and keeping the first that clears the finding while leaving the entity legal.
+    /// </summary>
+    /// <remarks>
+    /// Unlike Handling Trainer memory there is no single canonical OT memory to apply, so this searches rather
+    /// than guessing: several values are typically acceptable for a given encounter (a Dynamax Adventure catch
+    /// accepts memories 8, 9, 11, 12, 13 and 15 among others), and which ones depends on the encounter.
+    /// Intensity comes from <see cref="MemoryContext.GetMinimumIntensity"/> and feeling from
+    /// <see cref="MemoryContext8.GetRandomFeeling8"/>, so the applied memory is internally consistent.
+    /// <para/>
+    /// Entities that legitimately must have no OT memory are untouched: the verifier only raises
+    /// <c>MemoryMissingOT</c> when <c>CanHaveMemoryForOT</c> is true, so Mystery Gift entities (which require
+    /// memory 0) never enter the search.
+    /// <para/>
+    /// Memory fields are <b>not</b> on HOME's documented immutable list, so unlike almost every other bulk edit
+    /// this one is safe to apply to a HOME-registered entity. See the caller for how that exemption is applied.
+    /// </remarks>
+    public static BulkEditResult FixOriginalTrainerMemoryForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNotApplicable = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+            // Only Gen8 has a feeling helper here; other contexts are left alone rather than guessed at.
+            if (pk is not IMemoryOT || pk.Context != EntityContext.Gen8 || !IsMissingOTMemory(pk))
+            {
+                skippedNotApplicable++;
+                continue;
+            }
+
+            if (TrySearchOTMemory(pk))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
+    }
+
+    private static bool IsMissingOTMemory(PKM pk)
+    {
+        try
+        {
+            foreach (var chk in new LegalityAnalysis(pk).Results)
+            {
+                if (chk.Result == LegalityCheckResultCode.MemoryMissingOT)
+                    return true;
+            }
+        }
+        catch (Exception)
+        {
+            // Corrupted data; treat as "nothing to do" rather than letting one entity break the run.
+        }
+        return false;
+    }
+
+    private static bool TrySearchOTMemory(PKM pk)
+    {
+        var context = Memories.GetContext(EntityContext.Gen8);
+        for (byte memory = 1; memory < 100; memory++)
+        {
+            if (!context.CanObtainMemoryOT(pk.Version, memory))
+                continue;
+
+            var applied = memory;
+            if (!TryApplyGuarded(pk, p => ApplyOTMemory(p, context, applied)))
+                continue;
+            // The guard only proves legality; confirm the finding it was raised for is actually gone.
+            if (!IsMissingOTMemory(pk))
+                return true;
+        }
+        return false;
+    }
+
+    private static void ApplyOTMemory(PKM pk, MemoryContext context, byte memory)
+    {
+        if (pk is not IMemoryOT ot)
+            return;
+        ot.OriginalTrainerMemory = memory;
+        ot.OriginalTrainerMemoryIntensity = context.GetMinimumIntensity(memory);
+        ot.OriginalTrainerMemoryFeeling = MemoryContext8.GetRandomFeeling8(memory);
+        ot.OriginalTrainerMemoryVariable = 0;
+    }
+
     private static void FixHandlingTrainerMemory(PKM pk)
     {
         // PK9 has its own canonical routine that clears more than the four memory fields -- for an untraded
