@@ -75,6 +75,69 @@ public static class BulkAutoLegalize
         return new Result(modified, failed, alreadyLegal, invalid);
     }
 
+    /// <param name="Regenerated">Entities given a genuinely new identity (PID changed) while staying legal.</param>
+    /// <param name="Failed">Entities the legalizer could not rebuild, or rebuilt without changing identity.</param>
+    public readonly record struct IdentityResult(int Regenerated, int Failed);
+
+    /// <summary>
+    /// Gives entities a fresh identity by re-running the legalizer, for cases where directly rerolling the PID
+    /// cannot work.
+    /// </summary>
+    /// <remarks>
+    /// Gen9 raid encounters (<c>EncounterTera9</c>/<c>Dist9</c>/<c>Might9</c>) derive PID, Encryption Constant
+    /// and IVs from a single seed, and <c>Encounter9RNG</c> re-derives and compares them exactly. Mutating the
+    /// PID in place therefore always breaks the seed correlation, which is why
+    /// <see cref="BulkQoLEditor.RegeneratePIDTrackerAndECForAll"/> reverts on those entities. The only way to
+    /// change identity legally is to find a <i>different valid seed</i>, which is what the legalizer's search
+    /// does.
+    /// <para/>
+    /// This is deliberately more invasive than the guarded reroll: it rebuilds the entity from a
+    /// <see cref="RegenTemplate"/>, so incidental details can shift. Offer it as a fallback, not a default.
+    /// </remarks>
+    public static IdentityResult ForceNewIdentity(IEnumerable<PKM> mons, SaveFile sav)
+    {
+        int regenerated = 0, failed = 0;
+        foreach (var pk in mons)
+        {
+            if (TryForceNewIdentity(pk, sav))
+                regenerated++;
+            else
+                failed++;
+        }
+        return new IdentityResult(regenerated, failed);
+    }
+
+    private static bool TryForceNewIdentity(PKM pk, SaveFile sav)
+    {
+        try
+        {
+            var oldPid = pk.PID;
+            var oldEc = pk.EncryptionConstant;
+            var regen = new RegenTemplate(pk);
+            var blank = EntityBlank.GetBlank(sav);
+            var async = sav.GetLegalFromTemplateTimeout(blank, regen);
+            if (async.Status != LegalizationResult.Regenerated)
+                return false;
+
+            var converted = EntityConverter.ConvertToType(async.Created, pk.GetType(), out _);
+            if (converted is null || converted.Data.Length != pk.Data.Length)
+                return false;
+            // No point committing a rebuild that landed on the same identity -- the collision would remain.
+            if (converted.PID == oldPid && converted.EncryptionConstant == oldEc)
+                return false;
+            if (!new LegalityAnalysis(converted).Valid)
+                return false;
+
+            converted.Data.CopyTo(pk.Data);
+            pk.RefreshChecksum();
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     /// <param name="forceShiny">
     /// Overrides the shiny type the <see cref="RegenTemplate"/> would otherwise inherit from the entity
     /// (<c>RegenSet</c>'s constructor maps an existing Star shiny to <see cref="Shiny.AlwaysStar"/>, which would

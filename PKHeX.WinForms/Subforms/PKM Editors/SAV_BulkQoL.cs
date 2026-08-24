@@ -228,9 +228,45 @@ public partial class SAV_BulkQoL : Form
         if (distinctFixable.Count == 0 || reply != DialogResult.Yes)
             return; // e.g. only a duplicate-gift-egg finding, which has no safe automatic fix
 
-        var fixResult = BulkQoLEditor.RegeneratePIDTrackerAndECForAll(distinctFixable.Select(s => s.Entity));
+        // Per-entity so we learn WHICH ones the cheap path could not handle. Gen9 raid encounters derive
+        // PID/EC/IVs from one seed and Encounter9RNG re-derives them exactly, so mutating the PID in place
+        // always breaks the correlation -- those need a different valid seed, which only the legalizer finds.
+        var stubborn = new List<SlotCache>();
+        int fixedCount = 0, wasIllegal = 0, notApplicable = 0;
+        foreach (var slot in distinctFixable)
+        {
+            var one = BulkQoLEditor.RegeneratePIDTrackerAndECForAll([slot.Entity]);
+            if (one.Modified == 1) fixedCount++;
+            else if (one.AlreadyIllegal == 1) wasIllegal++;
+            else if (one.AlreadyLegal == 1) notApplicable++;
+            else stubborn.Add(slot);
+        }
         foreach (var slot in distinctFixable)
             slot.Source.WriteTo(SAV, slot.Entity, EntityImportSettings.None);
+
+        var fixResult = new BulkQoLEditor.BulkEditResult(fixedCount, stubborn.Count, 0, notApplicable, wasIllegal);
+
+        if (stubborn.Count != 0)
+        {
+            var offer = WinFormsUtil.Prompt(MessageBoxButtons.YesNo,
+                $"{stubborn.Count} could not be fixed by rerolling PID/EC directly. This is expected for Gen9 raid "
+                + "Pokémon, whose PID, Encryption Constant and IVs all derive from a single seed -- changing the PID "
+                + "breaks that correlation, so the edit is reverted.",
+                "Rebuild those via the legalizer instead? It searches for a genuinely different valid seed. This is "
+                + "more invasive than the reroll: it regenerates each Pokémon from a template, so incidental details "
+                + "can shift. Anything it cannot rebuild legally is left exactly as-is.");
+            if (offer == DialogResult.Yes)
+            {
+                var forced = BulkAutoLegalize.ForceNewIdentity(stubborn.Select(s => s.Entity), SAV);
+                foreach (var slot in stubborn)
+                    slot.Source.WriteTo(SAV, slot.Entity, EntityImportSettings.None);
+                fixResult = fixResult with
+                {
+                    Modified = fixResult.Modified + forced.Regenerated,
+                    SkippedIllegal = forced.Failed,
+                };
+            }
+        }
 
         // Re-verify immediately rather than making the user click Check for Clones again to find out whether it
         // actually worked -- a leftover count here means those specific entities failed the legality guard
