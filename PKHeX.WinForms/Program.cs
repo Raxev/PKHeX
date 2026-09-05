@@ -35,6 +35,13 @@ internal static class Program
 #endif
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+
+        // FIX (2026-08-28): AutoMod's TrainerSettings.DefaultOT default ("ALM", the original mod's initials)
+        // leaks into freshly-regenerated Pokemon that have no real trainer data to fall back on. Overriding it
+        // here (rather than editing the vendored PKHeX.Core.AutoMod source) keeps this a one-line fork-owned
+        // change instead of a permanent merge-conflict source against upstream.
+        PKHeX.Core.AutoMod.TrainerSettings.DefaultOT = "Alex";
+
         Settings = PKHeXSettings.GetSettings(PathConfig);
 
         if (Settings.Startup.DarkMode)
