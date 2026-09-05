@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace PKHeX.Core;
@@ -692,8 +692,13 @@ public static class BulkQoLEditor
     /// Unlike Handling Trainer memory there is no single canonical OT memory to apply, so this searches rather
     /// than guessing: several values are typically acceptable for a given encounter (a Dynamax Adventure catch
     /// accepts memories 8, 9, 11, 12, 13 and 15 among others), and which ones depends on the encounter.
-    /// Intensity comes from <see cref="MemoryContext.GetMinimumIntensity"/> and feeling from
-    /// <see cref="MemoryContext8.GetRandomFeeling8"/>, so the applied memory is internally consistent.
+    /// Intensity comes from <see cref="MemoryContext.GetMinimumIntensity"/> and feeling from the table matching
+    /// the origin context, so the applied memory is internally consistent.
+    /// <para/>
+    /// Applies to every memory-bearing context, not just Gen8: XY/ORAS (Gen6) and SM/USUM (Gen7) entities use
+    /// <see cref="MemoryContext6"/>, later ones <see cref="MemoryContext8"/>. Note the severity differs -- the
+    /// verifier reports a missing OT memory as Invalid for Gen6/7 origin but only Fishy for Gen8, because
+    /// SW/SH trades legitimately leave it unset for a while.
     /// <para/>
     /// Entities that legitimately must have no OT memory are untouched: the verifier only raises
     /// <c>MemoryMissingOT</c> when <c>CanHaveMemoryForOT</c> is true, so Mystery Gift entities (which require
@@ -712,14 +717,15 @@ public static class BulkQoLEditor
                 skippedInvalid++;
                 continue;
             }
-            // Only Gen8 has a feeling helper here; other contexts are left alone rather than guessed at.
-            if (pk is not IMemoryOT || pk.Context != EntityContext.Gen8 || !IsMissingOTMemory(pk))
+            // MemoryVerifier keys the whole check on the ENCOUNTER's context, not the entity's format -- a
+            // Gen6-origin mon sitting in a Gen7 save is judged by Gen6 memory rules. Gate on the same thing.
+            if (pk is not IMemoryOT || !IsMissingOTMemory(pk, out var origin))
             {
                 skippedNotApplicable++;
                 continue;
             }
 
-            if (TrySearchOTMemory(pk))
+            if (TrySearchOTMemory(pk, origin))
                 modified++;
             else
                 skippedIllegal++;
@@ -727,14 +733,29 @@ public static class BulkQoLEditor
         return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
     }
 
-    private static bool IsMissingOTMemory(PKM pk)
+    /// <summary>
+    /// Reports whether <paramref name="pk"/> is missing its OT memory, and if so which
+    /// <see cref="EntityContext"/> the memory rules must be drawn from.
+    /// </summary>
+    /// <remarks>
+    /// The context comes from the matched <b>encounter</b>, not from <see cref="PKM.Context"/>: a Gen6-origin
+    /// entity transferred into a Gen7 save is still judged against Gen6 memory tables. This mirrors
+    /// <c>MemoryVerifier.VerifyOTMemory</c>, which opens with <c>var context = enc.Context;</c> -- keying off
+    /// the entity's own format instead would look up the wrong memory table and search a candidate list the
+    /// verifier will reject every time.
+    /// </remarks>
+    private static bool IsMissingOTMemory(PKM pk, out EntityContext origin)
     {
+        origin = pk.Context;
         try
         {
-            foreach (var chk in new LegalityAnalysis(pk).Results)
+            var la = new LegalityAnalysis(pk);
+            foreach (var chk in la.Results)
             {
-                if (chk.Result == LegalityCheckResultCode.MemoryMissingOT)
-                    return true;
+                if (chk.Result != LegalityCheckResultCode.MemoryMissingOT)
+                    continue;
+                origin = la.Info.EncounterMatch.Context;
+                return true;
             }
         }
         catch (Exception)
@@ -744,16 +765,18 @@ public static class BulkQoLEditor
         return false;
     }
 
-    private static bool TrySearchOTMemory(PKM pk)
+    private static bool IsMissingOTMemory(PKM pk) => IsMissingOTMemory(pk, out _);
+
+    private static bool TrySearchOTMemory(PKM pk, EntityContext origin)
     {
-        var context = Memories.GetContext(EntityContext.Gen8);
+        var context = Memories.GetContext(origin);
         for (byte memory = 1; memory < 100; memory++)
         {
             if (!context.CanObtainMemoryOT(pk.Version, memory))
                 continue;
 
             var applied = memory;
-            if (!TryApplyGuarded(pk, p => ApplyOTMemory(p, context, applied)))
+            if (!TryApplyGuarded(pk, p => ApplyOTMemory(p, origin, context, applied)))
                 continue;
             // The guard only proves legality; confirm the finding it was raised for is actually gone.
             if (!IsMissingOTMemory(pk))
@@ -762,13 +785,19 @@ public static class BulkQoLEditor
         return false;
     }
 
-    private static void ApplyOTMemory(PKM pk, MemoryContext context, byte memory)
+    private static void ApplyOTMemory(PKM pk, EntityContext origin, MemoryContext context, byte memory)
     {
         if (pk is not IMemoryOT ot)
             return;
         ot.OriginalTrainerMemory = memory;
         ot.OriginalTrainerMemoryIntensity = context.GetMinimumIntensity(memory);
-        ot.OriginalTrainerMemoryFeeling = MemoryContext8.GetRandomFeeling8(memory);
+        // The two feeling tables differ per context; picking the wrong one yields a memory the verifier
+        // rejects, which the guard would silently revert as "unfixable".
+        ot.OriginalTrainerMemoryFeeling = origin is EntityContext.Gen6 or EntityContext.Gen7
+            ? MemoryContext6.GetRandomFeeling6(memory)
+            : MemoryContext8.GetRandomFeeling8(memory);
+        // Memories that need a real argument (met location, captured species, ...) will fail the guard with a
+        // zero variable and simply fall through to the next candidate, so no per-memory special-casing here.
         ot.OriginalTrainerMemoryVariable = 0;
     }
 
@@ -1022,6 +1051,316 @@ public static class BulkQoLEditor
             // revert, same as an ordinary "this made it illegal" result.
         }
 
+        backup.CopyTo(pk.Data);
+        pk.RefreshChecksum();
+        return false;
+    }
+    /// <summary>
+    /// Repairs <see cref="LegalityCheckResultCode.TransferNature"/> on Virtual Console transfers
+    /// (Gen1/Gen2 -> Gen7), where the Nature is not stored on the entity but re-derived from its Experience.
+    /// </summary>
+    /// <remarks>
+    /// A VC transfer has no Nature byte of its own in the original games, so Gen7 recomputes it as
+    /// <c>EXP % 25</c> (<see cref="Experience.GetNatureVC"/>). Editing the Nature directly desynchronizes it
+    /// from the Experience and <see cref="TransferVerifier"/> flags it as Invalid. Two cases exist, and only
+    /// the Nature side is adjustable in either:
+    /// <list type="bullet">
+    /// <item><b>Met Level 100</b>: the entity cannot gain further EXP after transfer, so the Experience is
+    /// pinned and the Nature must be exactly <c>EXP % 25</c>. One candidate, no search.</item>
+    /// <item><b>Met Level 2 or below</b>: the level's EXP window is too narrow to produce all 25 natures, so
+    /// only the subset in <see cref="Experience.IsValidNatureMetLevel2"/> is reachable for that growth rate.
+    /// Candidates are tried in order from the entity's current Nature so the change is as small as possible.</item>
+    /// </list>
+    /// Nature <i>is</i> on HOME's documented immutable list, so unlike the memory and Fishy repairs this must
+    /// respect the "skip HOME-registered" filter -- see the caller.
+    /// </remarks>
+    public static BulkEditResult FixTransferNatureForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNotApplicable = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+            if (!GetFindingCodes(pk).Contains(LegalityCheckResultCode.TransferNature))
+            {
+                skippedNotApplicable++;
+                continue;
+            }
+
+            if (TryFixTransferNature(pk))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
+    }
+
+    private static bool TryFixTransferNature(PKM pk)
+    {
+        foreach (var nature in GetTransferNatureCandidates(pk))
+        {
+            var applied = nature;
+            if (!TryClearFinding(pk, LegalityCheckResultCode.TransferNature, p => p.Nature = applied))
+                continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Yields the natures worth trying for <paramref name="pk"/>, best candidate first.
+    /// </summary>
+    private static IEnumerable<Nature> GetTransferNatureCandidates(PKM pk)
+    {
+        if (pk.MetLevel == 100)
+        {
+            // Experience is pinned at the level-100 value, so exactly one nature can ever match it.
+            yield return Experience.GetNatureVC(pk.EXP);
+            yield break;
+        }
+
+        // Met Level <= 2: walk outward from the current nature so the smallest possible change wins.
+        var growth = pk.PersonalInfo.EXPGrowth;
+        var current = (byte)pk.Nature;
+        for (byte i = 0; i < 25; i++)
+        {
+            var candidate = (Nature)((current + i) % 25);
+            if (Experience.IsValidNatureMetLevel2(growth, candidate))
+                yield return candidate;
+        }
+    }
+    /// <summary>
+    /// Repairs <see cref="LegalityCheckResultCode.MemoryStatFriendshipOTBaseEvent_0"/> by restoring
+    /// <see cref="PKM.OriginalTrainerFriendship"/> to the base friendship the encounter requires.
+    /// </summary>
+    /// <remarks>
+    /// OT Friendship is frozen at the value assigned in the entity's original generation -- unlike current
+    /// friendship it can never drift -- so <c>HistoryVerifier</c> raises this whenever a traded-away
+    /// ("never OT") or Virtual Console entity carries anything else.
+    /// <para/>
+    /// No search is needed: the verifier already computed the one acceptable value and passes it as the check's
+    /// hint argument (<see cref="CheckResult.Value"/>), for both the
+    /// <c>GetBaseFriendship(enc)</c> branch and the VC1/2 evolution-chain branch. Reading it back is exact and
+    /// stays correct if upstream changes how that value is derived, which re-deriving it here would not.
+    /// <para/>
+    /// This touches OT Friendship only, never <see cref="PKM.CurrentFriendship"/>, so no stat or evolution
+    /// behaviour changes. It is not on HOME's documented immutable list, so it shares the OT-memory repair's
+    /// HOME-registered exemption -- see the caller.
+    /// </remarks>
+    public static BulkEditResult FixOriginalTrainerFriendshipForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNotApplicable = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+            if (!TryGetExpectedOTFriendship(pk, out var expect))
+            {
+                skippedNotApplicable++;
+                continue;
+            }
+
+            if (TryClearFinding(pk, LegalityCheckResultCode.MemoryStatFriendshipOTBaseEvent_0, p => p.OriginalTrainerFriendship = expect))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
+    }
+
+    /// <summary>
+    /// Reports whether the OT Friendship finding is present, and the base friendship the verifier expects.
+    /// </summary>
+    private static bool TryGetExpectedOTFriendship(PKM pk, out byte expect)
+    {
+        expect = 0;
+        try
+        {
+            foreach (var chk in new LegalityAnalysis(pk).Results)
+            {
+                if (chk.Result != LegalityCheckResultCode.MemoryStatFriendshipOTBaseEvent_0)
+                    continue;
+                expect = (byte)chk.Value;
+                return true;
+            }
+        }
+        catch (Exception)
+        {
+            // Corrupted data; treat as "nothing to do" rather than letting one entity break the run.
+        }
+        return false;
+    }
+    /// <summary>
+    /// Codes repaired by <see cref="FixTransferSideFieldsForAll"/>: the PID-adjacent fields on a Gen3/4/5
+    /// entity transferred forward, which drift when a PID is edited after the fact.
+    /// </summary>
+    private static readonly LegalityCheckResultCode[] TransferSideFieldCodes =
+    [
+        LegalityCheckResultCode.TransferEncryptGen6Equals,
+        LegalityCheckResultCode.TransferEncryptGen6BitFlip,
+        LegalityCheckResultCode.PIDNatureMismatch,
+        LegalityCheckResultCode.AbilityHiddenFail,
+    ];
+
+    /// <summary>
+    /// Repairs the PID-derived side fields (Encryption Constant, Nature, Ability) on legacy entities
+    /// transferred forward into Gen6+, without ever touching the PID itself.
+    /// </summary>
+    /// <remarks>
+    /// On a Gen3/4/5 transfer the PID is the root value and three fields hang off it:
+    /// <list type="bullet">
+    /// <item><b>Encryption Constant</b> -- the transfer copies the original PID into the EC, so
+    /// <c>PK5.GetTransferPID(EC, ID32)</c> must reproduce the PID exactly.</item>
+    /// <item><b>Nature</b> -- <c>GenderVerifier.GetExpectedNature</c> requires <c>EC % 25</c>.</item>
+    /// <item><b>Ability</b> -- Gen3/4/5 encounters resolve the ability from a PID bit, and pre-Gen5 encounters
+    /// have no Hidden Ability at all, so a Hidden Ability here is always wrong.</item>
+    /// </list>
+    /// <b>This cannot fix a PID that is wrong for its encounter</b> (<c>PIDTypeMismatch</c>, "PID+ correlation
+    /// does not match what was expected for the Encounter's type"). That demands the PID be a genuine output
+    /// frame of the encounter's RNG method, which no side-field edit can produce -- those entities need full
+    /// regeneration via the legalizer instead. Force-shinied legacy entities are almost always in that bucket.
+    /// <para/>
+    /// Because of that, this uses <see cref="TryApplyReducingInvalid"/> rather than the usual
+    /// "must end up fully legal" guard: an entity carrying an unfixable PID would otherwise have its genuine
+    /// side-field repairs reverted for failing a condition they were never able to satisfy. The weaker guard
+    /// still cannot regress anything -- it keeps the edit only if it removes at least one Invalid finding and
+    /// introduces no new one.
+    /// </remarks>
+    public static BulkEditResult FixTransferSideFieldsForAll(IEnumerable<PKM> mons)
+    {
+        int modified = 0, skippedIllegal = 0, skippedInvalid = 0, skippedNotApplicable = 0;
+        foreach (var pk in mons)
+        {
+            if (pk.Species == 0)
+            {
+                skippedInvalid++;
+                continue;
+            }
+
+            var invalid = GetInvalidCodes(pk);
+            if (!HasAny(invalid, TransferSideFieldCodes))
+            {
+                skippedNotApplicable++;
+                continue;
+            }
+
+            if (TryApplyReducingInvalid(pk, ApplyTransferSideFields))
+                modified++;
+            else
+                skippedIllegal++;
+        }
+        return new BulkEditResult(modified, skippedIllegal, skippedInvalid, skippedNotApplicable);
+    }
+
+    private static void ApplyTransferSideFields(PKM pk)
+    {
+        // EC first: Nature is derived from whatever EC ends up being.
+        if (TryGetTransferEC(pk, out var ec))
+            pk.EncryptionConstant = ec;
+
+        pk.Nature = (Nature)(pk.EncryptionConstant % 25);
+
+        // Pre-Gen5 encounters have no Hidden Ability, and Gen3/4/5 resolve the ability slot from a PID bit.
+        if (pk.AbilityNumber == 4)
+            pk.RefreshAbility(GetPIDAbilityIndex(pk));
+    }
+
+    /// <summary>
+    /// Finds the Encryption Constant that reproduces the entity's existing PID under the Gen5-to-Gen6 transfer
+    /// rule, leaving the PID untouched.
+    /// </summary>
+    /// <remarks>
+    /// <c>PK5.GetTransferPID</c> maps an EC to either itself or itself with the top bit flipped, so the PID has
+    /// at most two possible pre-images -- just test both rather than re-deriving the branch condition.
+    /// <para/>
+    /// Neither can match when the PID falls in the band that Gen6's doubled shiny rate made unreachable
+    /// (<c>(xor &amp; 0xFFF8) == 8</c>): such a PID could never have come through a real transfer, so there is no
+    /// EC that legitimises it and the caller reports it unfixable rather than inventing one.
+    /// </remarks>
+    private static bool TryGetTransferEC(PKM pk, out uint ec)
+    {
+        ec = pk.PID;
+        if (PK5.GetTransferPID(ec, pk.ID32, out _) == pk.PID)
+            return true;
+        ec = pk.PID ^ 0x80000000;
+        if (PK5.GetTransferPID(ec, pk.ID32, out _) == pk.PID)
+            return true;
+        ec = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Ability slot (0 or 1) that the PID dictates for a legacy-origin entity.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PKM.PIDAbility"/> cannot be used here: it returns -1 once <see cref="PKM.Format"/> exceeds 5,
+    /// which is always true for the transferred entities this repairs. Gen5 reads the high half of the PID,
+    /// Gen3/4 the low bit.
+    /// </remarks>
+    private static int GetPIDAbilityIndex(PKM pk) => pk.Generation == 5
+        ? (int)((pk.PID >> 16) & 1)
+        : (int)(pk.PID & 1);
+
+    private static HashSet<LegalityCheckResultCode> GetInvalidCodes(PKM pk)
+    {
+        var set = new HashSet<LegalityCheckResultCode>();
+        try
+        {
+            foreach (var chk in new LegalityAnalysis(pk).Results)
+            {
+                if (chk.Judgement == Severity.Invalid)
+                    set.Add(chk.Result);
+            }
+        }
+        catch (Exception)
+        {
+            // Corrupted data; leave the set empty so the entity is reported as "nothing applicable".
+        }
+        return set;
+    }
+
+    private static bool HasAny(HashSet<LegalityCheckResultCode> set, LegalityCheckResultCode[] codes)
+    {
+        foreach (var code in codes)
+        {
+            if (set.Contains(code))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Applies <paramref name="mutate"/> and keeps it only if the set of Invalid findings strictly shrinks:
+    /// at least one is cleared and no new one appears. Reverts otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A weaker guard than <see cref="TryApplyGuarded"/>, for entities that carry a defect this editor cannot
+    /// repair. Requiring full legality there would throw away correct partial fixes; requiring the result to be
+    /// a proper subset of what was already wrong means the entity can only ever move toward legal.
+    /// </remarks>
+    private static bool TryApplyReducingInvalid(PKM pk, Action<PKM> mutate)
+    {
+        var before = GetInvalidCodes(pk);
+        Span<byte> backup = stackalloc byte[pk.Data.Length];
+        pk.Data.CopyTo(backup);
+        try
+        {
+            mutate(pk);
+            pk.RefreshChecksum();
+            var after = GetInvalidCodes(pk);
+            if (after.Count < before.Count && after.IsSubsetOf(before))
+                return true;
+        }
+        catch (Exception)
+        {
+            // Fall through and revert, same as an ordinary "this didn't work" result.
+        }
         backup.CopyTo(pk.Data);
         pk.RefreshChecksum();
         return false;

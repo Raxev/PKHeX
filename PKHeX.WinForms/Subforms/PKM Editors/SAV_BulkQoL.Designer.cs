@@ -1,4 +1,4 @@
-namespace PKHeX.WinForms
+﻿namespace PKHeX.WinForms
 {
     partial class SAV_BulkQoL
     {
@@ -58,6 +58,8 @@ namespace PKHeX.WinForms
             CHK_FixTrashMemory = new System.Windows.Forms.CheckBox();
             CHK_FixOTMemory = new System.Windows.Forms.CheckBox();
             CHK_FixFishy = new System.Windows.Forms.CheckBox();
+            CHK_FixTransferNature = new System.Windows.Forms.CheckBox();
+            CHK_FixTransferSideFields = new System.Windows.Forms.CheckBox();
             CHK_ClearTracker = new System.Windows.Forms.CheckBox();
             CHK_RegenTrackerEC = new System.Windows.Forms.CheckBox();
             CHK_AutoLegalize = new System.Windows.Forms.CheckBox();
@@ -66,6 +68,7 @@ namespace PKHeX.WinForms
             B_Cancel = new System.Windows.Forms.Button();
             B_CheckClones = new System.Windows.Forms.Button();
             B_HomeCheck = new System.Windows.Forms.Button();
+            B_SortBoxes = new System.Windows.Forms.Button();
             B_Run = new System.Windows.Forms.Button();
             B_Close = new System.Windows.Forms.Button();
             SuspendLayout();
@@ -359,23 +362,43 @@ namespace PKHeX.WinForms
             CHK_FixOTMemory.Name = "CHK_FixOTMemory";
             CHK_FixOTMemory.Size = new System.Drawing.Size(340, 19);
             CHK_FixOTMemory.TabIndex = 24;
-            CHK_FixOTMemory.Text = "Fix missing OT memory (safe on HOME-registered)";
+            CHK_FixOTMemory.Text = "Fix OT history: memory + event friendship (HOME-safe)";
             CHK_FixOTMemory.UseVisualStyleBackColor = true;
             //
             // CHK_FixFishy
             //
             CHK_FixFishy.AutoSize = true;
-            CHK_FixFishy.Location = new System.Drawing.Point(14, 467);
+            CHK_FixFishy.Location = new System.Drawing.Point(14, 517);
             CHK_FixFishy.Name = "CHK_FixFishy";
             CHK_FixFishy.Size = new System.Drawing.Size(340, 19);
             CHK_FixFishy.TabIndex = 25;
             CHK_FixFishy.Text = "Fix \"Fishy\" warnings (EVs / EXP / nickname flag)";
             CHK_FixFishy.UseVisualStyleBackColor = true;
             //
+            // CHK_FixTransferNature
+            //
+            CHK_FixTransferNature.AutoSize = true;
+            CHK_FixTransferNature.Location = new System.Drawing.Point(14, 467);
+            CHK_FixTransferNature.Name = "CHK_FixTransferNature";
+            CHK_FixTransferNature.Size = new System.Drawing.Size(340, 19);
+            CHK_FixTransferNature.TabIndex = 26;
+            CHK_FixTransferNature.Text = "Fix VC transfer Nature (Gen1/2 to Gen7 EXP mismatch)";
+            CHK_FixTransferNature.UseVisualStyleBackColor = true;
+            //
+            // CHK_FixTransferSideFields
+            //
+            CHK_FixTransferSideFields.AutoSize = true;
+            CHK_FixTransferSideFields.Location = new System.Drawing.Point(14, 492);
+            CHK_FixTransferSideFields.Name = "CHK_FixTransferSideFields";
+            CHK_FixTransferSideFields.Size = new System.Drawing.Size(340, 19);
+            CHK_FixTransferSideFields.TabIndex = 27;
+            CHK_FixTransferSideFields.Text = "Fix legacy transfer EC / Nature / Hidden Ability";
+            CHK_FixTransferSideFields.UseVisualStyleBackColor = true;
+            //
             // CHK_ClearTracker
             //
             CHK_ClearTracker.AutoSize = true;
-            CHK_ClearTracker.Location = new System.Drawing.Point(14, 492);
+            CHK_ClearTracker.Location = new System.Drawing.Point(14, 542);
             CHK_ClearTracker.Name = "CHK_ClearTracker";
             CHK_ClearTracker.Size = new System.Drawing.Size(340, 19);
             CHK_ClearTracker.TabIndex = 26;
@@ -385,7 +408,7 @@ namespace PKHeX.WinForms
             // CHK_RegenTrackerEC
             //
             CHK_RegenTrackerEC.AutoSize = true;
-            CHK_RegenTrackerEC.Location = new System.Drawing.Point(14, 517);
+            CHK_RegenTrackerEC.Location = new System.Drawing.Point(14, 567);
             CHK_RegenTrackerEC.Name = "CHK_RegenTrackerEC";
             CHK_RegenTrackerEC.Size = new System.Drawing.Size(340, 19);
             CHK_RegenTrackerEC.TabIndex = 24;
@@ -395,7 +418,7 @@ namespace PKHeX.WinForms
             // CHK_AutoLegalize
             //
             CHK_AutoLegalize.AutoSize = true;
-            CHK_AutoLegalize.Location = new System.Drawing.Point(14, 542);
+            CHK_AutoLegalize.Location = new System.Drawing.Point(14, 592);
             CHK_AutoLegalize.Name = "CHK_AutoLegalize";
             CHK_AutoLegalize.Size = new System.Drawing.Size(280, 19);
             CHK_AutoLegalize.TabIndex = 25;
@@ -404,7 +427,7 @@ namespace PKHeX.WinForms
             //
             // L_LegalNotice
             //
-            L_LegalNotice.Location = new System.Drawing.Point(12, 567);
+            L_LegalNotice.Location = new System.Drawing.Point(12, 617);
             L_LegalNotice.Name = "L_LegalNotice";
             L_LegalNotice.Size = new System.Drawing.Size(360, 60);
             L_LegalNotice.TabIndex = 26;
@@ -412,7 +435,7 @@ namespace PKHeX.WinForms
             //
             // PB_Progress
             //
-            PB_Progress.Location = new System.Drawing.Point(12, 632);
+            PB_Progress.Location = new System.Drawing.Point(12, 682);
             PB_Progress.Name = "PB_Progress";
             PB_Progress.Size = new System.Drawing.Size(268, 20);
             PB_Progress.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
@@ -421,7 +444,7 @@ namespace PKHeX.WinForms
             //
             // B_Cancel
             //
-            B_Cancel.Location = new System.Drawing.Point(286, 630);
+            B_Cancel.Location = new System.Drawing.Point(286, 680);
             B_Cancel.Name = "B_Cancel";
             B_Cancel.Size = new System.Drawing.Size(74, 24);
             B_Cancel.TabIndex = 30;
@@ -432,7 +455,7 @@ namespace PKHeX.WinForms
             //
             // B_CheckClones
             //
-            B_CheckClones.Location = new System.Drawing.Point(12, 662);
+            B_CheckClones.Location = new System.Drawing.Point(12, 712);
             B_CheckClones.Name = "B_CheckClones";
             B_CheckClones.Size = new System.Drawing.Size(150, 27);
             B_CheckClones.TabIndex = 31;
@@ -442,7 +465,7 @@ namespace PKHeX.WinForms
             //
             // B_HomeCheck
             //
-            B_HomeCheck.Location = new System.Drawing.Point(168, 662);
+            B_HomeCheck.Location = new System.Drawing.Point(168, 712);
             B_HomeCheck.Name = "B_HomeCheck";
             B_HomeCheck.Size = new System.Drawing.Size(192, 27);
             B_HomeCheck.TabIndex = 34;
@@ -450,9 +473,19 @@ namespace PKHeX.WinForms
             B_HomeCheck.UseVisualStyleBackColor = true;
             B_HomeCheck.Click += B_HomeCheck_Click;
             //
+            // B_SortBoxes
+            //
+            B_SortBoxes.Location = new System.Drawing.Point(12, 744);
+            B_SortBoxes.Name = "B_SortBoxes";
+            B_SortBoxes.Size = new System.Drawing.Size(348, 27);
+            B_SortBoxes.TabIndex = 35;
+            B_SortBoxes.Text = "Sort All Boxes by National Dex #";
+            B_SortBoxes.UseVisualStyleBackColor = true;
+            B_SortBoxes.Click += B_SortBoxes_Click;
+            //
             // B_Run
             //
-            B_Run.Location = new System.Drawing.Point(178, 694);
+            B_Run.Location = new System.Drawing.Point(178, 776);
             B_Run.Name = "B_Run";
             B_Run.Size = new System.Drawing.Size(88, 27);
             B_Run.TabIndex = 32;
@@ -462,7 +495,7 @@ namespace PKHeX.WinForms
             //
             // B_Close
             //
-            B_Close.Location = new System.Drawing.Point(272, 694);
+            B_Close.Location = new System.Drawing.Point(272, 776);
             B_Close.Name = "B_Close";
             B_Close.Size = new System.Drawing.Size(88, 27);
             B_Close.TabIndex = 33;
@@ -473,7 +506,7 @@ namespace PKHeX.WinForms
             // SAV_BulkQoL
             //
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
-            ClientSize = new System.Drawing.Size(384, 734);
+            ClientSize = new System.Drawing.Size(384, 816);
             Controls.Add(L_Scope);
             Controls.Add(RB_Boxes);
             Controls.Add(RB_Party);
@@ -504,6 +537,8 @@ namespace PKHeX.WinForms
             Controls.Add(CHK_FixTrashMemory);
             Controls.Add(CHK_FixOTMemory);
             Controls.Add(CHK_FixFishy);
+            Controls.Add(CHK_FixTransferNature);
+            Controls.Add(CHK_FixTransferSideFields);
             Controls.Add(CHK_ClearTracker);
             Controls.Add(CHK_RegenTrackerEC);
             Controls.Add(CHK_AutoLegalize);
@@ -512,6 +547,7 @@ namespace PKHeX.WinForms
             Controls.Add(B_Cancel);
             Controls.Add(B_CheckClones);
             Controls.Add(B_HomeCheck);
+            Controls.Add(B_SortBoxes);
             Controls.Add(B_Run);
             Controls.Add(B_Close);
             FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
@@ -557,6 +593,8 @@ namespace PKHeX.WinForms
         private System.Windows.Forms.CheckBox CHK_FixTrashMemory;
         private System.Windows.Forms.CheckBox CHK_FixOTMemory;
         private System.Windows.Forms.CheckBox CHK_FixFishy;
+        private System.Windows.Forms.CheckBox CHK_FixTransferNature;
+        private System.Windows.Forms.CheckBox CHK_FixTransferSideFields;
         private System.Windows.Forms.CheckBox CHK_ClearTracker;
         private System.Windows.Forms.CheckBox CHK_RegenTrackerEC;
         private System.Windows.Forms.CheckBox CHK_AutoLegalize;
@@ -565,6 +603,7 @@ namespace PKHeX.WinForms
         private System.Windows.Forms.Button B_Cancel;
         private System.Windows.Forms.Button B_CheckClones;
         private System.Windows.Forms.Button B_HomeCheck;
+        private System.Windows.Forms.Button B_SortBoxes;
         private System.Windows.Forms.Button B_Run;
         private System.Windows.Forms.Button B_Close;
     }

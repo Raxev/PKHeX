@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -73,6 +73,8 @@ public partial class SAV_BulkQoL : Form
         bool FixTrashMemory,
         bool FixOTMemory,
         bool FixFishy,
+        bool FixTransferNature,
+        bool FixTransferSideFields,
         bool ClearTracker,
         bool RegenTrackerEC,
         bool AutoLegalize);
@@ -96,6 +98,8 @@ public partial class SAV_BulkQoL : Form
         CHK_FixTrashMemory.Checked,
         CHK_FixOTMemory.Checked,
         CHK_FixFishy.Checked,
+        CHK_FixTransferNature.Checked,
+        CHK_FixTransferSideFields.Checked,
         CHK_ClearTracker.Checked,
         CHK_RegenTrackerEC.Checked,
         CHK_AutoLegalize.Checked);
@@ -512,7 +516,7 @@ public partial class SAV_BulkQoL : Form
 
     private static bool HasAnyEditSelected(Plan plan) =>
         plan.Ball || plan.MetLocation || plan.Shiny || plan.MaxIVs || plan.MaxSize || plan.NaturePreset
-        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.FixFishy || plan.ClearTracker || plan.RegenTrackerEC
+        || plan.AlignSize || plan.OptimizeIVs || plan.MaxPP || plan.FixMoves || plan.FixTrashMemory || plan.FixOTMemory || plan.FixFishy || plan.FixTransferNature || plan.FixTransferSideFields || plan.ClearTracker || plan.RegenTrackerEC
         || plan.AutoLegalize;
 
     /// <summary>
@@ -654,7 +658,9 @@ public partial class SAV_BulkQoL : Form
         {
             var scope = memoryScope ?? eligible;
             var result = BulkQoLEditor.FixOriginalTrainerMemoryForAll(scope.Select(s => s.Entity));
-            lines.Add($"Fix missing OT memory: {result.Modified} filled in, {result.SkippedIllegal} no valid memory found, {result.AlreadyLegal} skipped (not missing one, or non-Gen8), {result.SkippedInvalid} skipped (empty)");
+            lines.Add($"Fix missing OT memory: {result.Modified} filled in, {result.SkippedIllegal} no valid memory found, {result.AlreadyLegal} skipped (not missing one), {result.SkippedInvalid} skipped (empty)");
+            var friendship = BulkQoLEditor.FixOriginalTrainerFriendshipForAll(scope.Select(s => s.Entity));
+            lines.Add($"Fix event OT friendship: {friendship.Modified} restored to base friendship, {friendship.SkippedIllegal} could not be fixed, {friendship.AlreadyLegal} skipped (no such warning), {friendship.SkippedInvalid} skipped (empty)");
             foreach (var slot in scope)
                 slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
         }
@@ -667,6 +673,21 @@ public partial class SAV_BulkQoL : Form
             lines.Add($"Fix Fishy warnings: {result.Modified} cleaned up, {result.SkippedIllegal} could not be cleared, {result.AlreadyLegal} skipped (no such warning), {result.SkippedInvalid} skipped (empty)");
             foreach (var slot in scope)
                 slot.Source.WriteTo(sav, slot.Entity, EntityImportSettings.None);
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.FixTransferNature)
+        {
+            // Nature IS on HOME's immutable list, so this uses the ordinary scope and honours "Skip
+            // HOME-registered" -- unlike the OT-memory and Fishy repairs above.
+            var result = BulkQoLEditor.FixTransferNatureForAll(eligible.Select(s => s.Entity));
+            lines.Add($"Fix VC transfer Nature: {result.Modified} resynced to Experience, {result.SkippedIllegal} could not be fixed, {result.AlreadyLegal} skipped (no such warning), {result.SkippedInvalid} skipped (empty)");
+        }
+        if (Cancelled(ct, lines)) return lines;
+        if (plan.FixTransferSideFields)
+        {
+            // EC and Nature are HOME-immutable, so this honours "Skip HOME-registered" like the VC nature fix.
+            var result = BulkQoLEditor.FixTransferSideFieldsForAll(eligible.Select(s => s.Entity));
+            lines.Add($"Fix legacy transfer side fields: {result.Modified} improved, {result.SkippedIllegal} left alone (PID itself is wrong for the encounter -- needs Auto-enforce legality), {result.AlreadyLegal} skipped (no such warning), {result.SkippedInvalid} skipped (empty)");
         }
         if (Cancelled(ct, lines)) return lines;
         if (plan.ClearTracker)
@@ -742,6 +763,29 @@ public partial class SAV_BulkQoL : Form
 
     private bool IsEligible(SlotCache slot) =>
         slot.Source is not SlotInfoBox info || !SAV.GetBoxSlotFlags(info.Box, info.Slot).IsOverwriteProtected();
+
+    /// <summary>
+    /// Reorders every box in the save into National Dex order.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PKM.Species"/> is already the National Dex ID in PKHeX regardless of the entity's format
+    /// (the format-specific internal indices are converted on read), so the default
+    /// <see cref="EntitySorting.OrderBySpecies"/> comparer is National Dex order and needs no custom sorter.
+    /// <para/>
+    /// This is a slot reordering, not an edit: nothing about any entity's data changes, so the guarded
+    /// legality pattern the rest of this dialog uses does not apply. <see cref="SaveFile.SortBoxes"/> skips
+    /// overwrite-protected slots (locked / battle-box) and repoints slot pointers on its own.
+    /// <para/>
+    /// PKHeX already exposes this via the box right-click menu (Sort -> SortSpecies, holding Shift to apply to
+    /// all boxes rather than the current one); this button is the discoverable "all boxes" entry point.
+    /// </remarks>
+    private void B_SortBoxes_Click(object sender, EventArgs e)
+    {
+        var moved = SAV.SortBoxes();
+        WinFormsUtil.Alert(moved == 0
+            ? "No slots were repositioned -- the boxes are already in National Dex order (or every slot is overwrite-protected)."
+            : $"Sorted all boxes by National Dex #: {moved} Pokemon repositioned.");
+    }
 
     private void B_Close_Click(object sender, EventArgs e) => Close();
 }
