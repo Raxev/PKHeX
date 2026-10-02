@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using PKHeX.Core.Bulk;
 
@@ -75,7 +75,7 @@ public static class CloneDetector
 
             var first = analysis.AllData[index1];
             SlotCache? second = index2 == BulkCheckResult.NoIndex ? null : analysis.AllData[index2];
-            if (IsMandatedZeroEncryptionPair(chk.Result, first, second))
+            if (IsMandatedEncryptionPair(chk.Result, first, second))
                 continue;
             findings.Add(new Finding(Describe(chk.Result), first, second, chk.Result));
         }
@@ -90,36 +90,56 @@ public static class CloneDetector
     ];
 
     /// <summary>
-    /// Suppresses a shared-Encryption-Constant finding when the shared value is zero and both entities are
-    /// REQUIRED to have it, which makes the match evidence of nothing at all.
+    /// Suppresses a shared-Encryption-Constant finding when both entities are REQUIRED to hold that exact
+    /// value, which makes the match evidence of nothing at all.
     /// </summary>
     /// <remarks>
-    /// HOME gifts redeemed before HOME 3.0.0 were written with a literal zero PID and Encryption Constant, and
-    /// <c>WC8.IsMatchExact</c> enforces <c>EncryptionConstant == 0</c> for them. Two such entities therefore
-    /// "share" an EC no matter how unrelated they are -- a Melmetal and a Zeraora will collide purely because
-    /// neither is allowed to have a nonzero value. Reporting that as "almost certainly cloned" is a false
-    /// positive, and the fix it invites is impossible by construction.
+    /// Several encounter types pin the Encryption Constant, so two entities "share" one no matter how unrelated
+    /// they are:
+    /// <list type="bullet">
+    /// <item>HOME gifts redeemed before HOME 3.0.0 were written with a literal zero PID and EC, and
+    /// <c>WC8.IsMatchExact</c> enforces <c>EncryptionConstant == 0</c> -- a Melmetal and a Zeraora collide
+    /// purely because neither is allowed a nonzero value.</item>
+    /// <item>A Mystery Gift card that specifies a fixed EC pins every copy to that value, zero or not.</item>
+    /// <item>A Gen3/4/5 transfer has its EC pinned to the PID by the transfer rule.</item>
+    /// </list>
+    /// Reporting any of these as "almost certainly cloned" is a false positive, and the fix it invites is
+    /// impossible by construction. Note the last case loses nothing: entities whose EC is pinned to the PID
+    /// also share that PID, and the PID finding still reports, carrying the real signal.
     /// <para/>
-    /// Verified by attempting a nonzero EC on a throwaway copy rather than by guessing at encounter types: if
-    /// the entity stays legal with a different EC, the zero was not mandated and the finding is genuine.
+    /// Verified empirically rather than by enumerating encounter types, so it stays correct as encounter data
+    /// changes: several different Encryption Constants are attempted on a throwaway copy, and the value is
+    /// treated as mandated only if <b>every</b> alternative is rejected. One probe is not enough -- a single
+    /// unlucky value can be illegal for an unrelated reason (a Wurmple EC decides its evolution branch), which
+    /// would suppress a genuine clone.
     /// </remarks>
-    private static bool IsMandatedZeroEncryptionPair(LegalityCheckResultCode code, SlotCache first, SlotCache? second)
+    private static bool IsMandatedEncryptionPair(LegalityCheckResultCode code, SlotCache first, SlotCache? second)
     {
         if (!EncryptionSharingCodes.Contains(code) || second is not { } other)
             return false;
-        if (first.Entity.EncryptionConstant != 0 || other.Entity.EncryptionConstant != 0)
-            return false;
-        return IsZeroEncryptionMandated(first.Entity) && IsZeroEncryptionMandated(other.Entity);
+        return IsEncryptionMandated(first.Entity) && IsEncryptionMandated(other.Entity);
     }
 
-    private static bool IsZeroEncryptionMandated(PKM pk)
+    private static bool IsEncryptionMandated(PKM pk)
     {
         try
         {
-            var probe = pk.Clone();
-            probe.EncryptionConstant = 0x12345678; // any nonzero value
-            probe.RefreshChecksum();
-            return !new LegalityAnalysis(probe).Valid;
+            // Spread across the low bits, the high bits and the residues that Wurmple's evolution branch and
+            // similar EC-derived properties key on, so a rejection means the value itself is pinned rather than
+            // one candidate happening to be wrong.
+            var current = pk.EncryptionConstant;
+            Span<uint> candidates = [current ^ 0x1u, current ^ 0x8000_0000u, 0x1234_5678u, 0xFEDC_BA99u];
+            foreach (var candidate in candidates)
+            {
+                if (candidate == current)
+                    continue;
+                var probe = pk.Clone();
+                probe.EncryptionConstant = candidate;
+                probe.RefreshChecksum();
+                if (new LegalityAnalysis(probe).Valid)
+                    return false; // a different EC is allowed, so the shared value is not mandated
+            }
+            return true;
         }
         catch (Exception)
         {

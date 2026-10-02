@@ -92,6 +92,8 @@ public partial class Main : Form
         PB_Legal.AllowDrop = true;
         PB_Legal.DragEnter += Main_DragEnter;
         PB_Legal.DragDrop += Main_DragDrop;
+        PB_Legal.ContextMenuStrip = BuildRepairMenu();
+        toolTip.SetToolTip(PB_Legal, "Right-click for single-Pokemon repairs.");
 
         // ToolTips for Drag&Drop
         toolTip.SetToolTip(dragout, "Drag to Save");
@@ -442,10 +444,11 @@ public partial class Main : Form
 
     private void MainMenuBulkQoL(object sender, EventArgs e)
     {
-        using var form = new SAV_BulkQoL(C_SAV.SAV);
+        using var form = new SAV_BulkQoL(C_SAV.SAV, C_SAV.EditEnv.Slots.Changelog);
         form.ShowDialog();
         C_SAV.SetPKMBoxes(); // refresh
         C_SAV.UpdateBoxViewers();
+        C_SAV.UpdateUndoRedo(); // the run recorded a reversion; enable the Undo menu item
     }
 
     private void MainMenuFolder(object sender, EventArgs e)
@@ -1135,6 +1138,117 @@ public partial class Main : Form
         var la = new LegalityAnalysis(pk, C_SAV.SAV.Personal);
         PKME_Tabs.UpdateLegality(la);
         DisplayLegalityReport(la);
+    }
+
+    /// <summary>
+    /// Builds the right-click menu on the legality indicator: the same repairs the Bulk QoL dialog runs, but
+    /// applied to the single Pokemon currently open in the editor.
+    /// </summary>
+    /// <remarks>
+    /// The catalogue lives in <see cref="BulkQoLEditor.EntityRepairs"/> so the bulk and single-entity paths
+    /// cannot drift apart -- same code, same guards, same ordering. This method only renders it.
+    /// <para/>
+    /// Entries are enabled from <c>AppliesTo</c>, which is a structural test (entity format and interfaces),
+    /// not a legality one. Asking "would this actually change something" means running the repair, and some of
+    /// them run dozens of legality passes, which is far too slow to do for every entry on every menu open. So a
+    /// repair that is structurally possible but has nothing to do stays enabled and reports that when clicked.
+    /// </remarks>
+    private ContextMenuStrip BuildRepairMenu()
+    {
+        var menu = new ContextMenuStrip();
+        var all = new ToolStripMenuItem("Try all applicable repairs");
+        all.Click += (_, _) => RunRepair(null);
+        menu.Items.Add(all);
+        menu.Items.Add(new ToolStripSeparator());
+
+        foreach (var repair in BulkQoLEditor.EntityRepairs)
+        {
+            var captured = repair;
+            var item = new ToolStripMenuItem(repair.Name) { Tag = captured };
+            item.Click += (_, _) => RunRepair(captured);
+            menu.Items.Add(item);
+        }
+
+        // Size-extreme repairs are deliberately separate from "try all" (BulkQoLEditor.EntityRepairs) -- see
+        // the remarks on BulkQoLEditor.SizeRepairs for why maximize/minimize can't sensibly be an "applies to
+        // this entity" repair. Own separator, own section, same enable/click wiring.
+        menu.Items.Add(new ToolStripSeparator());
+        foreach (var repair in BulkQoLEditor.SizeRepairs)
+        {
+            var captured = repair;
+            var item = new ToolStripMenuItem(repair.Name) { Tag = captured };
+            item.Click += (_, _) => RunRepair(captured);
+            menu.Items.Add(item);
+        }
+
+        // Re-evaluated per open rather than once at startup: the editor holds a different Pokemon each time,
+        // and a menu built against the first one loaded would be wrong for every one after it.
+        menu.Opening += (_, _) =>
+        {
+            var pk = PKME_Tabs.EditsComplete ? PreparePKM() : null;
+            foreach (var entry in menu.Items)
+            {
+                if (entry is not ToolStripMenuItem { Tag: BulkQoLEditor.EntityRepair repair } item)
+                    continue;
+                item.Enabled = pk is { Species: > 0 } && repair.AppliesTo(pk);
+            }
+        };
+        return menu;
+    }
+
+    /// <summary>
+    /// Runs one repair, or the whole catalogue when <paramref name="single"/> is null, against the Pokemon in
+    /// the editor, then reloads the editor and re-runs the legality check.
+    /// </summary>
+    private void RunRepair(BulkQoLEditor.EntityRepair? single)
+    {
+        if (!PKME_Tabs.EditsComplete)
+        { WinFormsUtil.Hand(); return; }
+
+        var pk = PreparePKM();
+        if (pk.Species == 0)
+        { WinFormsUtil.Hand(); return; }
+
+        var sav = C_SAV.SAV;
+        List<string> applied;
+        try
+        {
+            // FIX (2026-09-19): this whole block used to run with no exception handling at all, so any repair
+            // that threw (single or "try all") crashed the entire app on the UI thread instead of just failing
+            // this one action -- with no autosave, that took the user's in-progress editor state down with it.
+            // RepairEntity already isolates per-repair failures internally; this outer guard catches anything
+            // that still escapes (PreparePKM, a single-repair Apply, or the PopulateFields/LegalityAnalysis
+            // refresh below), so a bad entity can never do worse than "this repair didn't work".
+            if (single is { } repair)
+                applied = repair.Apply(pk, sav) ? [repair.Name] : [];
+            else
+                applied = BulkQoLEditor.RepairEntity(pk, sav);
+        }
+        catch (Exception ex)
+        {
+            WinFormsUtil.Error("The repair failed unexpectedly and was not applied.", ex);
+            return;
+        }
+
+        if (applied.Count == 0)
+        {
+            WinFormsUtil.Alert("No change: nothing this repair targets was found, or the fix would not have made it legal.");
+            return;
+        }
+
+        // Load the repaired data back into the editor rather than writing it to the box: this is an edit to the
+        // Pokemon being worked on, so it follows the same save-when-you-say-so flow as any manual field change.
+        try
+        {
+            PKME_Tabs.PopulateFields(pk);
+            var la = new LegalityAnalysis(pk, sav.Personal);
+            PKME_Tabs.UpdateLegality(la);
+            WinFormsUtil.Alert($"Applied: {string.Join(", ", applied)}", la.Valid ? "Now legal." : "Still illegal -- see the legality report for what remains.");
+        }
+        catch (Exception ex)
+        {
+            WinFormsUtil.Error("Repair(s) applied, but the editor could not be refreshed.", ex);
+        }
     }
 
     private void DisplayLegalityReport(LegalityAnalysis la)

@@ -133,6 +133,8 @@ public static class BulkAutoLegalize
 
     private static bool TryForceNewIdentity(PKM pk, SaveFile sav, HashSet<uint> taken)
     {
+        UseSaveAsFallbackTrainer(sav);
+        var identity = TrainerIdentity.From(pk);
         var oldPid = pk.PID;
         var oldEc = pk.EncryptionConstant;
         for (int attempt = 0; attempt < IdentityAttempts; attempt++)
@@ -159,6 +161,9 @@ public static class BulkAutoLegalize
 
                 converted.Data.CopyTo(pk.Data);
                 pk.RefreshChecksum();
+                // This routine rerolls PID/EC on purpose; the owner is not part of what it is trying to change.
+                PreserveTrainerIdentity(pk, identity);
+                OptimizeIVsWithoutCollision(pk, sav, taken);
                 return true;
             }
             catch (Exception)
@@ -176,6 +181,8 @@ public static class BulkAutoLegalize
     /// </param>
     private static bool TryLegalize(PKM pk, SaveFile sav, Shiny? forceShiny)
     {
+        UseSaveAsFallbackTrainer(sav);
+        var identity = TrainerIdentity.From(pk);
         try
         {
             var regen = new RegenTemplate(pk);
@@ -199,6 +206,7 @@ public static class BulkAutoLegalize
 
             converted.Data.CopyTo(pk.Data);
             pk.RefreshChecksum();
+            PreserveTrainerIdentity(pk, identity);
             return true;
         }
         catch (Exception)
@@ -208,5 +216,107 @@ public static class BulkAutoLegalize
             // should count as a failure, not take down the whole run.
             return false;
         }
+    }
+
+    /// <summary>
+    /// Improves the entity's IVs after a forced identity change, keeping the result only if it stays unique and
+    /// legal.
+    /// </summary>
+    /// <remarks>
+    /// These are the seed-correlated encounters -- Tera raids and the like -- where PID, Encryption Constant and
+    /// all six IVs derive from a single seed. Forcing a new identity therefore re-rolls the IVs as a side
+    /// effect, and whichever spread the first legal seed produced is what the Pokemon is left with. That can be
+    /// a very poor base spread; Hyper Training then masks it in the displayed stats while the underlying values
+    /// stay low. Searching for a better seed is the only way to influence them, which is exactly what
+    /// <see cref="IVOptimizer"/> does for this encounter class.
+    /// <para/>
+    /// Reverted if the optimizer's own regeneration lands on a PID already in use: de-cloning is the point of
+    /// this routine, and a better IV spread is not worth reintroducing the collision it just removed.
+    /// </remarks>
+    private static void OptimizeIVsWithoutCollision(PKM pk, SaveFile sav, HashSet<uint> taken)
+    {
+        var snapshot = pk.Data.ToArray();
+        try
+        {
+            if (!IVOptimizer.TryOptimize(pk, sav))
+                return;
+            pk.RefreshChecksum();
+            if (!taken.Contains(pk.PID) && new LegalityAnalysis(pk).Valid)
+                return;
+        }
+        catch (Exception)
+        {
+            // Fall through and revert.
+        }
+        snapshot.CopyTo(pk.Data);
+        pk.RefreshChecksum();
+    }
+
+    /// <summary>
+    /// Points AutoMod's fallback trainer at the currently loaded save, so anything it regenerates is stamped
+    /// with the player's own OT/TID/SID rather than a hardcoded placeholder.
+    /// </summary>
+    /// <remarks>
+    /// Works around a real defect in the vendored engine.
+    /// <c>TrainerSettings.GetSavedTrainerData(GameVersion, byte, ITrainerInfo?, LanguageID?)</c> takes a
+    /// <c>fallback</c> trainer parameter and then never reads it -- when its trainer database has no match it
+    /// returns <c>DefaultFallback(version, lang)</c>, which is built from the static <c>DefaultOT</c>. So the
+    /// save file that <see cref="TryLegalize"/> hands the legalizer cannot influence the OT at all, and with no
+    /// <c>trainers</c> folder next to the executable that database is always empty. Every regenerated Pokemon
+    /// therefore inherits <c>DefaultOT</c>, which upstream ships as "ALM".
+    /// <para/>
+    /// Setting the defaults from the save is preferable to hardcoding a name: it needs no per-user
+    /// configuration, it keeps TID/SID consistent with the OT (a matching name over a mismatched ID pair is
+    /// still wrong), and it survives loading a different save. Patching the vendored method directly would be
+    /// the tidier fix but makes every upstream merge a conflict, which is why this stays fork-side.
+    /// </remarks>
+    private static void UseSaveAsFallbackTrainer(SaveFile sav)
+    {
+        if (sav.OT.Length == 0)
+            return;
+        TrainerSettings.DefaultOT = sav.OT;
+        TrainerSettings.DefaultTID16 = sav.TID16;
+        TrainerSettings.DefaultSID16 = sav.SID16;
+    }
+
+    /// <summary>
+    /// The trainer fields that identify who owns a Pokemon, captured before legalization so they can be put back.
+    /// </summary>
+    private readonly record struct TrainerIdentity(string Name, ushort TID16, ushort SID16, byte Gender, int Language)
+    {
+        public static TrainerIdentity From(PKM pk) =>
+            new(pk.OriginalTrainerName, pk.TID16, pk.SID16, pk.OriginalTrainerGender, pk.Language);
+    }
+
+    /// <summary>
+    /// Restores the pre-legalization trainer identity onto <paramref name="pk"/>, keeping it only if the entity
+    /// stays legal.
+    /// </summary>
+    /// <remarks>
+    /// The legalizer rebuilds an entity from a template and stamps whatever trainer it resolved, which discards
+    /// the original owner even when nothing about the original owner was wrong. That matters most for event
+    /// Pokemon: a Mystery Gift whose card has a variable OT legitimately carries the receiving player's name, so
+    /// overwriting it with a fallback both loses real provenance and is unrecoverable once saved.
+    /// <para/>
+    /// Guarded rather than unconditional, because for some encounters the OT is not free -- a gift with a fixed
+    /// OT must carry the card's trainer, and an in-game trade must carry the NPC's. In those cases restoring the
+    /// old name would re-break the entity the legalizer just fixed, so the guard reverts and the legalizer's
+    /// choice stands. "Keep the original where keeping it is legal" is exactly the intended behaviour.
+    /// </remarks>
+    private static void PreserveTrainerIdentity(PKM pk, TrainerIdentity identity)
+    {
+        if (identity.Name.Length == 0)
+            return; // Nothing meaningful to put back.
+        if (pk.OriginalTrainerName == identity.Name && pk.TID16 == identity.TID16 && pk.SID16 == identity.SID16)
+            return; // Legalizer already kept it.
+
+        BulkQoLEditor.TryApplyGuarded(pk, p =>
+        {
+            p.OriginalTrainerName = identity.Name;
+            p.TID16 = identity.TID16;
+            p.SID16 = identity.SID16;
+            p.OriginalTrainerGender = identity.Gender;
+            p.Language = identity.Language;
+        });
     }
 }

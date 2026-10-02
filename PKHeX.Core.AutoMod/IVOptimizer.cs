@@ -32,7 +32,7 @@ public static class IVOptimizer
         public int Total => Improved + AlreadyOptimal + Failed + SkippedInvalid;
     }
 
-    public static Result OptimizeAll(IEnumerable<PKM> mons, SaveFile sav, int searchAttempts = DefaultSearchAttempts)
+    public static Result OptimizeAll(IEnumerable<PKM> mons, SaveFile sav, int searchAttempts = DefaultSearchAttempts, TimeSpan? searchBudget = null)
     {
         int improved = 0, alreadyOptimal = 0, failed = 0, invalid = 0;
         foreach (var pk in mons)
@@ -43,7 +43,7 @@ public static class IVOptimizer
                 continue;
             }
 
-            switch (TryOptimizeCore(pk, sav, searchAttempts))
+            switch (TryOptimizeCore(pk, sav, searchAttempts, searchBudget))
             {
                 case OptimizeResult.Improved: improved++; break;
                 case OptimizeResult.AlreadyOptimal: alreadyOptimal++; break;
@@ -58,26 +58,39 @@ public static class IVOptimizer
     /// <summary>
     /// Tries to improve <paramref name="pk"/>'s IVs in place. Returns whether it was changed.
     /// </summary>
-    public static bool TryOptimize(PKM pk, SaveFile sav, int searchAttempts = DefaultSearchAttempts) =>
-        TryOptimizeCore(pk, sav, searchAttempts) == OptimizeResult.Improved;
+    /// <param name="searchBudget">
+    /// Wall-clock cap for the seed search on PID/IV-correlated encounters. Defaults to
+    /// <see cref="SearchBudget"/>. Callers running this across a whole box should pass something much smaller:
+    /// the default is sized for optimising one Pokemon on demand, and paying it per entity turns a bulk run
+    /// into hours.
+    /// </param>
+    public static bool TryOptimize(PKM pk, SaveFile sav, int searchAttempts = DefaultSearchAttempts, TimeSpan? searchBudget = null) =>
+        TryOptimizeCore(pk, sav, searchAttempts, searchBudget) == OptimizeResult.Improved;
 
-    private static OptimizeResult TryOptimizeCore(PKM pk, SaveFile sav, int searchAttempts)
+    private static OptimizeResult TryOptimizeCore(PKM pk, SaveFile sav, int searchAttempts, TimeSpan? searchBudget)
     {
         try
         {
             var originalLegal = new LegalityAnalysis(pk).Valid;
             var originalScore = originalLegal ? Score(pk) : double.MinValue;
 
+            // A 0 IV in Attack or Speed is almost always deliberate, not damage: 0 Speed is how Trick Room
+            // builds work, and 0 Attack minimises confusion and Foul Play self-damage on a special attacker.
+            // "Optimise" must not undo a deliberate build, so those slots are pinned wherever they are already 0.
+            var keepZeroAtk = pk.IV_ATK == 0;
+            var keepZeroSpe = pk.IV_SPE == 0;
+            var target = BuildTarget(keepZeroAtk, keepZeroSpe);
+
             // Cheap path first: most encounters allow any IVs 0-31 on some/all stats (a flawless-count minimum
             // is a floor, not a ceiling; a partially-fixed set only constrains the fixed slots). Maxing everything
             // is always the best legal answer for those, and BulkQoLEditor.TryApplyGuarded reverts harmlessly if not.
-            if (BulkQoLEditor.TryApplyGuarded(pk, p => p.SetIVs(MaxIVs)))
+            if (BulkQoLEditor.TryApplyGuarded(pk, p => p.SetIVs(target)))
                 return (!originalLegal || Score(pk) > originalScore) ? OptimizeResult.Improved : OptimizeResult.AlreadyOptimal;
 
             // The cheap path failed: this is very likely a PID/IV-correlated encounter (Tera raid, raid den,
             // certain overworld/static gifts, ...) where IVs are a byproduct of whichever seed the PID came from,
             // not independently settable. Search for a better seed instead.
-            return TryOptimizeViaSearch(pk, sav, searchAttempts, originalLegal, originalScore);
+            return TryOptimizeViaSearch(pk, sav, searchAttempts, originalLegal, originalScore, keepZeroAtk, keepZeroSpe, searchBudget ?? SearchBudget);
         }
         catch (Exception)
         {
@@ -90,6 +103,33 @@ public static class IVOptimizer
 
     private static readonly int[] MaxIVs = [31, 31, 31, 31, 31, 31];
 
+    /// <summary>
+    /// Builds the target IV spread: 31 everywhere, except Attack and/or Speed held at 0 when the entity already
+    /// has them there deliberately.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PKM.SetIVs(ReadOnlySpan{int})"/> takes them in stat order HP, ATK, DEF, SPE, SPA, SPD -- Speed
+    /// sits before the special stats, not last, which is an easy index to get wrong.
+    /// </remarks>
+    private static int[] BuildTarget(bool keepZeroAtk, bool keepZeroSpe) =>
+        [31, keepZeroAtk ? 0 : 31, 31, keepZeroSpe ? 0 : 31, 31, 31];
+
+    /// <summary>
+    /// True if <paramref name="candidate"/> keeps whichever of Attack/Speed the original had pinned at 0.
+    /// </summary>
+    /// <remarks>
+    /// Needed as a filter rather than a scoring penalty: the search regenerates from a fresh seed each attempt
+    /// and cannot ask for a specific IV, so a candidate that rolls high Attack on a Trick Room build would
+    /// otherwise score well and win. Scoring it lower would only make it unlikely; rejecting it makes it
+    /// impossible.
+    /// </remarks>
+    private static bool PreservesIntentionalZeros(PKM candidate, bool keepZeroAtk, bool keepZeroSpe)
+    {
+        if (keepZeroAtk && candidate.IV_ATK != 0)
+            return false;
+        return !keepZeroSpe || candidate.IV_SPE == 0;
+    }
+
     // Overall wall-clock budget for the whole search, regardless of remaining attempt count -- some entities
     // (e.g. an origin with very few or no matching legal encounters) can make every attempt slow, and 2000
     // slow attempts back to back would otherwise take far too long. Individual attempts are additionally
@@ -97,7 +137,7 @@ public static class IVOptimizer
     private static readonly TimeSpan SearchBudget = TimeSpan.FromSeconds(20);
     private const int PerAttemptTimeoutSeconds = 2;
 
-    private static OptimizeResult TryOptimizeViaSearch(PKM pk, SaveFile sav, int searchAttempts, bool originalLegal, double originalScore)
+    private static OptimizeResult TryOptimizeViaSearch(PKM pk, SaveFile sav, int searchAttempts, bool originalLegal, double originalScore, bool keepZeroAtk, bool keepZeroSpe, TimeSpan budget)
     {
         // Build once: same species/form/level/ability/moves/nature as pk, but with every IV slot marked
         // unconstrained (EncounterCriteria.RandomIV == -1), so each regeneration attempt below is free to roll
@@ -105,6 +145,13 @@ public static class IVOptimizer
         var regen = new RegenTemplate(pk);
         for (int i = 0; i < regen.IVs.Length; i++)
             regen.IVs[i] = -1;
+        // Ask for the pinned zeros up front rather than only filtering for them afterwards. Seed-derived
+        // encounters may ignore the request, which is why PreservesIntentionalZeros still rejects below, but
+        // where it is honoured the search stops burning attempts on candidates that can never be accepted.
+        if (keepZeroAtk)
+            regen.IVs[1] = 0;
+        if (keepZeroSpe)
+            regen.IVs[3] = 0;
 
         PKM? best = null;
         var bestScore = double.MinValue;
@@ -114,7 +161,7 @@ public static class IVOptimizer
         try
         {
             APILegality.Timeout = PerAttemptTimeoutSeconds;
-            for (int attempt = 0; attempt < searchAttempts && sw.Elapsed < SearchBudget; attempt++)
+            for (int attempt = 0; attempt < searchAttempts && sw.Elapsed < budget; attempt++)
             {
                 var blank = EntityBlank.GetBlank(sav);
                 var async = sav.GetLegalFromTemplateTimeout(blank, regen);
@@ -127,6 +174,8 @@ public static class IVOptimizer
                 if (converted is null || converted.Data.Length != pk.Data.Length)
                     continue;
                 if (!new LegalityAnalysis(converted).Valid)
+                    continue;
+                if (!PreservesIntentionalZeros(converted, keepZeroAtk, keepZeroSpe))
                     continue;
 
                 var score = Score(converted);

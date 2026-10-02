@@ -40,6 +40,11 @@ internal static class Program
         // leaks into freshly-regenerated Pokemon that have no real trainer data to fall back on. Overriding it
         // here (rather than editing the vendored PKHeX.Core.AutoMod source) keeps this a one-line fork-owned
         // change instead of a permanent merge-conflict source against upstream.
+        // FIX (2026-09-07): this only ever renamed the placeholder. The reason a placeholder is reached at all
+        // is that TrainerSettings.GetSavedTrainerData ignores the fallback trainer it is handed, so the loaded
+        // save's OT never reaches the legalizer. BulkAutoLegalize.UseSaveAsFallbackTrainer now repoints these
+        // defaults at the open save before legalizing; this assignment remains only as the value used before
+        // any save has been loaded.
         PKHeX.Core.AutoMod.TrainerSettings.DefaultOT = "Alex";
 
         Settings = PKHeXSettings.GetSettings(PathConfig);
